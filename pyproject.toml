@@ -11,19 +11,17 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-# Only pure-Python, pip-installable dependencies. GROMACS / PLUMED are *not*
+# Only pip-installable dependencies. GROMACS / PLUMED are *not*
 # dependencies: this library only writes files and bash scripts, a human (or a
 # job scheduler) runs them.
 dependencies = [
     "pydantic>=2",
     "numpy",
+    "openmm>=8.5.2",  # gmx_harness.relax
+    "MDAnalysis",  # gmx_harness.analysis
+    "pandas",  # gmx_harness.analysis.generate_excel
+    "openpyxl",  # pandas .xlsx writer
 ]
-
-[project.optional-dependencies]
-# gmx_harness.relax (soft-core pre-relaxation)
-relax = ["openmm>=8.5.2"]
-# gmx_harness.analysis
-analysis = ["MDAnalysis", "pandas", "openpyxl"]
 
 [build-system]
 requires = ["hatchling"]

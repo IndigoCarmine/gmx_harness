@@ -4,7 +4,7 @@ A library that **generates** GROMACS simulation pipelines (EM → NVT → NPT �
 It was split out of the `gromacs` package in mylibs (`yagaiG-libs`).
 
 - **It never runs anything**: the library does not call `gmx`. A person or the job scheduler runs the generated `run.sh`.
-  It has no dependency on GROMACS or PLUMED; the only required dependencies are `pydantic` and `numpy`.
+  It has no dependency on GROMACS or PLUMED; dependencies are pip packages only (pydantic, numpy, OpenMM, MDAnalysis, pandas, openpyxl).
 - **Flexibility**: any mdp option can be set via `additional_mdp_parameters`. Custom steps are possible by subclassing `Calculation`,
   and arbitrary commands can be run with `RawShellStep` (explicit opt-in required).
 - **Safety**:
@@ -19,9 +19,6 @@ It was split out of the `gromacs` package in mylibs (`yagaiG-libs`).
 
 ```bash
 pip install "gmx-harness @ git+<URL of this repository>"
-# Optional extras
-pip install "gmx-harness[relax]"     # soft-core pre-relaxation with OpenMM
-pip install "gmx-harness[analysis]"  # trajectory analysis with MDAnalysis
 ```
 
 ## Usage
@@ -95,7 +92,7 @@ trailing comments in the mdp templates are stripped.
 ## Development
 
 ```bash
-uv sync --extra relax --extra analysis
+uv sync
 uv run python -m unittest discover -s tests -t .
 uv run mypy
 uv run python -c "from gmx_harness.apidoc import write_api_docs; write_api_docs()"   # after changing docstrings
