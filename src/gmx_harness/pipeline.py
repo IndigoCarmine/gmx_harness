@@ -43,7 +43,9 @@ class OverwritePolicy(enum.Enum):
         run.sh / copy.sh (the hand-over to the next step) are updated, and only
         if gmx_harness generated them and nobody edited them.
     REPLACE_GENERATED: overwrite files that gmx_harness generated earlier and
-        nobody edited since (checked by hash); refuse for anything else.
+        nobody edited since (checked by hash); refuse for anything else. Steps that
+        already ran (their directory has output.* files) are kept like with
+        SKIP_EXISTING: their inputs must keep matching their results.
     """
 
     ERROR = "error"
@@ -89,6 +91,7 @@ class PlanPreview:
     unchanged: list[str] = field(default_factory=list)
     remove: list[str] = field(default_factory=list)
     skipped_steps: list[str] = field(default_factory=list)
+    started_steps: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     stale_outputs: list[str] = field(default_factory=list)
     written: bool = False
@@ -105,6 +108,7 @@ class PlanPreview:
             ("remove (generated earlier, no longer planned)", self.remove),
             ("unchanged", self.unchanged),
             ("skipped steps (already exist)", self.skipped_steps),
+            ("kept steps (already ran; only run.sh/copy.sh follow the plan)", self.started_steps),
             ("existing run outputs (may be stale)", self.stale_outputs),
             ("CONFLICTS", self.conflicts),
         ):
@@ -177,6 +181,9 @@ class Plan:
             elif overwrite is OverwritePolicy.SKIP_EXISTING:
                 skipped_dirs.add(s.dirname)
                 pv.skipped_steps.append(s.dirname)
+            elif any(d.glob("output.*")):  # REPLACE_GENERATED, but this step has already run
+                skipped_dirs.add(s.dirname)
+                pv.started_steps.append(s.dirname)
 
         planned = {f.relpath for f in self.files}
         for f in self.files:

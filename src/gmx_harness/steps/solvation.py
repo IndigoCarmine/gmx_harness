@@ -128,12 +128,12 @@ class SolvationSCP216(Calculation):
     def generate(self) -> dict[str, str]:
         body = "\n".join(
             [
+                ": > dummy.top  # empty topology for gmx solvate to report the added molecules in",
                 gmx_command("solvate", ["-cp", "input.gro", "-cs", "spc216.gro", "-o", "output.gro", "-p", "dummy.top"]),
                 topology.add_molecules_from_dummy("dummy.top"),
             ]
         )
         return {
-            "dummy.top": "",
             "grommp.sh": NOOP_GROMPP,
             "mdrun.sh": body_script(body),
         }
@@ -158,6 +158,7 @@ class SolvationMCH(Calculation):
     def generate(self) -> dict[str, str]:
         body = "\n".join(
             [
+                ": > dummy.top  # empty topology for gmx solvate to report the added molecules in",
                 gmx_command(
                     "solvate",
                     ["-cp", "input.gro", "-cs", "MCH_solventbox.gro", "-o", "output.gro", "-p", "dummy.top",
@@ -170,7 +171,6 @@ class SolvationMCH(Calculation):
             ]
         )
         return {
-            "dummy.top": "",
             "grommp.sh": NOOP_GROMPP,
             "mdrun.sh": body_script(body),
             "MCH.itp": default_file_content("MCH.itp"),

@@ -1,6 +1,6 @@
 [project]
 name = "gmx-harness"
-version = "0.1.0"
+version = "0.1.1"
 authors = [{ name = "Yuhei Yamada", email = "tamanisikamiani@gmail.com" }]
 description = "Generate GROMACS simulation pipelines safely, with an AI-agent harness (Claude Code skills + LLM API docs) bundled."
 readme = "README.md"

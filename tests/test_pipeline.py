@@ -105,13 +105,34 @@ class TestBuildAndWrite(PipelineTestCase):
 
     def test_replace_generated(self) -> None:
         self.plan(100).write()
-        (self.wd / "1_nvt/output.gro").write_text(GRO)  # a run output
+        (self.wd / "1_nvt/run.out").write_text("")  # a foreign file, but the step has not run yet
         pv = self.plan(200).write(OverwritePolicy.REPLACE_GENERATED)
         self.assertIn("1_nvt/setting.mdp", pv.overwrite)
-        self.assertIn("1_nvt/output.gro", pv.stale_outputs)
+        self.assertIn("1_nvt/run.out", pv.stale_outputs)
         mdp = MDParameters.from_file(str(self.wd / "1_nvt/setting.mdp"))
         self.assertEqual(mdp.get("nsteps"), "200")  # the new value really was written
-        self.assertTrue((self.wd / "1_nvt/output.gro").exists())  # never deleted
+
+    def test_replace_generated_keeps_steps_that_already_ran(self) -> None:
+        self.plan(100).write()
+        (self.wd / "1_nvt/output.gro").write_text(GRO)  # nvt has run
+        (self.wd / "1_nvt/grommp.sh").write_text("# rewritten by the run environment\n")
+        pv = self.plan(200).write(OverwritePolicy.REPLACE_GENERATED)
+        self.assertEqual(pv.started_steps, ["1_nvt"])
+        self.assertEqual(pv.conflicts, [])
+        # its inputs keep matching its results
+        self.assertEqual(MDParameters.from_file(str(self.wd / "1_nvt/setting.mdp")).get("nsteps"), "100")
+        self.assertTrue((self.wd / "1_nvt/output.gro").exists())
+
+    def test_solvation_rerun_after_gmx_rewrote_dummy_top(self) -> None:
+        from gmx_harness import SolvationMCH
+
+        steps = [EM(), SolvationMCH(calculation_name="solv")]
+        build_plan(steps, self.tmp / "start.gro", self.wd).write()
+        self.assertFalse((self.wd / "1_solv/dummy.top").exists())  # made by mdrun.sh, not tracked
+        self.assertIn(": > dummy.top", (self.wd / "1_solv/mdrun.sh").read_text())
+        (self.wd / "1_solv/dummy.top").write_text("MCH              8041\n")  # what gmx solvate writes
+        pv = build_plan(steps, self.tmp / "start.gro", self.wd).write(OverwritePolicy.REPLACE_GENERATED)
+        self.assertEqual(pv.conflicts, [])
 
     def test_replace_generated_refuses_human_edits(self) -> None:
         self.plan(100).write()

@@ -330,7 +330,7 @@ Methods:
 - `preview(self, overwrite: gmx_harness.pipeline.OverwritePolicy = <OverwritePolicy.ERROR: 'error'>, *, force_modified: bool = False) -> gmx_harness.pipeline.PlanPreview` - Compare the plan with the disk. Pure read; nothing is changed.
 - `write(self, overwrite: gmx_harness.pipeline.OverwritePolicy = <OverwritePolicy.ERROR: 'error'>, *, force_modified: bool = False) -> gmx_harness.pipeline.PlanPreview` - Write the plan. Raises ``PlanConflictError`` (without writing anything) on conflicts.
 
-### class `PlanPreview(working_dir: str, policy: str, create: list[str] = <factory>, overwrite: list[str] = <factory>, unchanged: list[str] = <factory>, remove: list[str] = <factory>, skipped_steps: list[str] = <factory>, conflicts: list[str] = <factory>, stale_outputs: list[str] = <factory>, written: bool = False) -> None`
+### class `PlanPreview(working_dir: str, policy: str, create: list[str] = <factory>, overwrite: list[str] = <factory>, unchanged: list[str] = <factory>, remove: list[str] = <factory>, skipped_steps: list[str] = <factory>, started_steps: list[str] = <factory>, conflicts: list[str] = <factory>, stale_outputs: list[str] = <factory>, written: bool = False) -> None`
 Result of ``Plan.preview`` / ``Plan.write``. ``ok`` is False when there are conflicts.
 
 | field | type | default |
@@ -342,6 +342,7 @@ Result of ``Plan.preview`` / ``Plan.write``. ``ok`` is False when there are conf
 | `unchanged` | `list` | `[]` |
 | `remove` | `list` | `[]` |
 | `skipped_steps` | `list` | `[]` |
+| `started_steps` | `list` | `[]` |
 | `conflicts` | `list` | `[]` |
 | `stale_outputs` | `list` | `[]` |
 | `written` | `bool` | `False` |
