@@ -1,0 +1,66 @@
+---
+name: gmx-pipeline
+description: Use gmx_harness to design a GROMACS MD pipeline (EM → NVT → NPT → production, solvation, residue removal, box resizing, Martini, AWH, BAR) and generate the step directories and bash scripts safely. Keywords: GROMACS, gmx, MD pipeline, equilibration, solvation, mdp, run.sh, build_plan
+---
+
+# Generating a GROMACS pipeline (gmx_harness)
+
+## Principles
+- gmx_harness **only generates files**. Never run gmx or run.sh (see AGENTS.md).
+- Order: gather requirements → design → `save_json` → `build_plan` → show `summary()`/`preview()` → approval → `write()`.
+
+## 1. Ask for these (do not guess them)
+- Starting structure (.gro), topology (topo.top), and the .itp files it includes
+- Atomistic or Martini (CG)
+- Temperature, pressure, whether restraints are needed (the name used in `#ifdef POSRES`), production length (ns)
+- Solvent (MCH / SPC216 water / none)
+- Where it will run (the scripts are machine-independent; GROMACS is chosen there with `GMX`, threads/GPU with `MDRUN_ARGS`)
+
+## 2. Step reference
+| Purpose | Class | Notes |
+|---|---|---|
+| Energy minimization | `EM(nsteps, emtol, defines)` | First step |
+| NVT equilibration | `MD(type=MDType.v_rescale_only_nvt, ...)` | `gen_vel="yes"` |
+| NPT equilibration / production | `MD(type=MDType.v_rescale_c_rescale, gen_vel="no")` | c-rescale is safe even early in equilibration |
+| NPT production (NH+PR) | `MD(type=MDType.nose_hoover_parinello_rahman, gen_vel="no")` | Only for already equilibrated systems. The template has continuation=yes; change it with `continuation=False` |
+| Martini | `MartiniEM`, `MartiniMD(dt=0.02)` | Uses -ntmpi 1 |
+| MCH solvation | `SolvationMCH(scale=0.57)` / `Solvation.from_cell_size(...)` | Edits topo.top automatically |
+| Water | `SolvationSCP216()` | topo.top must already include a water model |
+| Residue removal | `RemoveResidue(name, resname)` | Removes only that residue from topo.top |
+| Box resizing | `ResizeBox(name, x, y, z, remove_resname=None)` | nm |
+| Adding files | `AddFiles(name, {"x.itp": text})` | .top/.itp files are carried to later steps |
+| Anything else | `RawShellStep(..., allow_unsafe=True)` | **Requires human approval** |
+
+- Time = `nsteps × dt` (atomistic dt = 0.002 ps → 1 ns = 500,000 steps; Martini uses 0.02 ps).
+- `calculation_name` may only use `[A-Za-z0-9_.+-]` and must be unique.
+- Any mdp option can be added or overridden with `additional_mdp_parameters={"key": value}`. It is checked when the files are generated.
+- Write `defines` without `-D` (`["POSRES"]`).
+- PLUMED and other mdrun options: `MD(..., mdrun_args=["-plumed", "plumed.dat"], extra_files={"plumed.dat": text})`.
+- PLUMED input from a template with atom selections by fragment label: `gmx_harness.preprocess_file(template, Layout(MoleculeLabels.from_gro(labeled_gro), nmol, nros), defines)` (`#define/#for/#include`, `{expr}`, `@sel(disk=, mol=, res=, name=, heavy=)`). Show the expanded text to the human before using it.
+- Inputs: `extra_inputs={"topo.top": "MOL_fixed.top", "MOL_hbond.itp": "..."}` (first step, renaming allowed); `step_inputs={"metad": {"index.ndx": "MOL.ndx"}}` for a later step.
+
+## 3. Generate
+```python
+from gmx_harness import *
+plan = build_plan(steps, "start.gro", "work", extra_inputs=["topo.top", "mol.itp"])
+print(plan.summary())
+print(plan.file("1_nvt/setting.mdp"))   # show the key mdp files to the human
+print(plan.preview())
+```
+- If `PlanPreview.conflicts` is not empty, report it and ask the human how to proceed.
+  - To add only new steps: `plan.write(OverwritePolicy.SKIP_EXISTING)`
+  - To regenerate after changing parameters: `plan.write(OverwritePolicy.REPLACE_GENERATED)`
+    (files a human has edited are refused. Do not force them with `force_modified`.)
+- Once approved, call `plan.write()`. Tell the human how to run it: `cd work && bash run.sh`
+  (optionally with `GMX=gmx_mpi MDRUN_ARGS="-ntomp 8"` on the running machine).
+  Creating a `freeze` file in a step directory stops that step.
+  Re-running `run.sh` resumes (finished steps are skipped, an interrupted MD step continues from output.cpt).
+  Extending a finished run is `bash extend.sh <ps>` in that step (the human runs it, like everything that calls gmx).
+- Useful options: `carry=("*.top", "*.itp", "*.ndx")` to hand an index file down the pipeline;
+  `MD(..., plumed=text)` for PLUMED (restarts add RESTART automatically);
+  `molecule_atoms` / `write_ndx` for index groups, `prepare_topology` for the input topology,
+  `write_job_scripts` for sbatch files + submit.sh (never submit them yourself).
+
+## 4. Many structures in bulk
+Run `build_plan` per structure into `work/<structure>`, then create a per-step batch runner with
+`generate_stepbystep_runfile(structures, [(step_dir, parallel?)...], "work")`.
