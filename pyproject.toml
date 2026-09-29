@@ -1,0 +1,58 @@
+[project]
+name = "gmx-harness"
+version = "0.1.0"
+authors = [{ name = "Yuhei Yamada", email = "tamanisikamiani@gmail.com" }]
+description = "Generate GROMACS simulation pipelines safely, with an AI-agent harness (Claude Code skills + LLM API docs) bundled."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+# Only pure-Python, pip-installable dependencies. GROMACS / PLUMED are *not*
+# dependencies: this library only writes files and bash scripts, a human (or a
+# job scheduler) runs them.
+dependencies = [
+    "pydantic>=2",
+    "numpy",
+]
+
+[project.optional-dependencies]
+# gmx_harness.relax (soft-core pre-relaxation)
+relax = ["openmm>=8.5.2"]
+# gmx_harness.analysis
+analysis = ["MDAnalysis", "pandas", "openpyxl"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gmx_harness"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pandas-stubs",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+# data/ holds standalone helper scripts that must stay Python-3.6 compatible (no annotations)
+exclude = ["src/gmx_harness/data/"]
+
+[[tool.mypy.overrides]]
+module = ["MDAnalysis", "MDAnalysis.*", "openmm", "openmm.*"]
+ignore_missing_imports = true
+
+# relax.py talks to OpenMM, which is untyped; checking it strictly only
+# produces noise about Any.
+[[tool.mypy.overrides]]
+module = ["gmx_harness.relax"]
+disallow_untyped_calls = false
+warn_return_any = false
+disallow_any_generics = false
