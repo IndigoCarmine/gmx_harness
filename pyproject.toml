@@ -40,8 +40,6 @@ dev = [
 python_version = "3.12"
 strict = true
 files = ["src"]
-# data/ holds standalone helper scripts that must stay Python-3.6 compatible (no annotations)
-exclude = ["src/gmx_harness/data/"]
 
 [[tool.mypy.overrides]]
 module = ["MDAnalysis", "MDAnalysis.*", "openmm", "openmm.*"]

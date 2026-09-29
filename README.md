@@ -35,6 +35,9 @@ steps = [
 save_json(steps, "pipeline.json")
 
 plan = build_plan(steps, "start.gro", "work", extra_inputs=["topo.top", "mol.itp"])
+# renaming / files for later steps:
+# build_plan(..., extra_inputs={"topo.top": "MOL_fixed.top"}, step_inputs={"npt": {"index.ndx": "MOL.ndx"}})
+# PLUMED: MD(..., mdrun_args=["-plumed", "plumed.dat"], extra_files={"plumed.dat": text})
 print(plan.summary())
 print(plan.preview())
 plan.write()                                     # OverwritePolicy.ERROR (default)
@@ -53,6 +56,18 @@ work/
 ```
 
 Run it: `cd work && bash run.sh`. Placing a `freeze` file in a step directory stops that step.
+
+Re-running and continuing:
+- Running `run.sh` again skips finished steps. A finished step never overwrites the inputs of a
+  later step that has also finished (safe for resubmission and copied/cloned trees).
+- An interrupted MD step continues from `output.cpt` without re-running grompp.
+- Extending a run: `cd work/6_md_prod && bash extend.sh 200000` (ps, via `gmx convert-tpr -extend`),
+  then `bash run.sh` again.
+- `generate_xtc.sh [GROUP] [OUTPUT]`, e.g. `bash generate_xtc.sh MOL mol_whole.xtc`.
+- Files handed from step to step: `build_plan(..., carry=("*.top", "*.itp", "*.ndx"))` (default: top/itp).
+- PLUMED: `MD(..., plumed=text)` writes plumed.dat and runs `-plumed plumed.dat`; when continuing from a
+  checkpoint it adds `RESTART` automatically (HILLS/COLVAR are appended to).
+- A step that ends without `output.gro` stops the top-level `run.sh` with an error.
 
 The scripts contain nothing specific to the machine that generated them; GROMACS is looked up when they run,
 so the directory can be copied to a cluster as is. Environment variables on the running machine:
@@ -76,8 +91,55 @@ Load GROMACS the usual way before running (`module load gromacs`, `source .../GM
 | `RemoveResidue`, `ResizeBox`, `AddFiles` | Typed file operations |
 | `RawShellStep` (`allow_unsafe=True` required) | Arbitrary bash |
 
-Other: `MDParameters` (mdp editing and validation), `GroFile` (.gro/.ndx), `load_xvg`, `generate_inermolecular_interactions`,
-`gmx_harness.relax.relax` (OpenMM), `gmx_harness.analysis` (MDAnalysis).
+Other: `MDParameters` (mdp editing and validation), `GroFile` (.gro/.ndx/.xyz/.pdb), `load_xvg`,
+`generate_inermolecular_interactions`, `gmx_harness.relax.relax` (OpenMM), `gmx_harness.analysis` (MDAnalysis).
+
+### Index files, topology preparation and batch jobs
+
+```python
+from gmx_harness import molecule_atoms, write_ndx, prepare_topology, write_job_scripts
+
+fiber = molecule_atoms(169, range(216))                      # 1-based atoms of molecules 0..215
+write_ndx("MOL_fiber.ndx", {"Fiber1": fiber, "fiberA": fiber})
+prepare_topology("MOL.top", "MOL_fixed.top", nmols=216, itp_name="MOL_hbond.itp")   # count + #ifdef INTER include
+write_job_scripts("calc", ["MOL_fiber_rot_+10"], open("Gromacs.sbatch").read())    # {JOB_NAME}/{SCRIPT} template
+```
+
+`write_job_scripts` renders your own job template into every system directory and writes `submit.sh` /
+`submit_restart.sh` (`sbatch -d singleton`); it only writes files and refuses to replace edited ones.
+
+### PLUMED input from templates
+
+```python
+from gmx_harness import MD, MDType, Layout, MoleculeLabels, preprocess_file
+
+layout = Layout(MoleculeLabels.from_gro("MOL_labeled.gro"), nmol=60, nros=6)  # residue column = fragment labels
+text = preprocess_file("metad_twist.plumed.in", layout, {"NDISK": 10, "BIAS_IFACE": 4})
+metad = MD(type=MDType.v_rescale_c_rescale, calculation_name="metad", gen_vel="no",
+           mdrun_args=["-plumed", "plumed.dat"], extra_files={"plumed.dat": text})
+```
+
+Templates are PLUMED input plus `#define` / `#for v in a..b` / `#endfor` / `#include`, `{expr}` and
+`@sel(disk=, mol=, res=, name=, heavy=)` (atom ranges of the selected fragments). Expressions run in a
+sandbox (no dunders, lambdas or imports) and `#include` cannot leave the template's directory.
+
+### Building structures from .gro
+
+```python
+from gmx_harness import Assembly, GroFile, make_oligorosette, make_rosette2, precoordinate2
+
+mono = precoordinate2(GroFile.from_gro_file("MOL.gro"), 1, 2, 3)   # atom numbers: top, NH, O
+ring = make_rosette2(mono, n=6, size=0.35)                          # Assembly of 6 monomers
+for i, m in enumerate(ring):
+    m.set_residue_number(i + 1)
+ring_gro = ring.to_gro(renumber=True)
+fiber = make_oligorosette(ring_gro, n=10, length=0.35, angle=10.0)  # stacked rings (slip= for a helix)
+fiber.to_gro(box=(10, 10, 3.5), renumber=True).save_gro("fiber.gro")
+```
+
+Also `pre_coordinate`, `make_rosette`, `make_half_rosette2`, `Assembly.translate/rotate`, and
+`gmx_harness.build.rotation` / `align` (3x3 matrices; `GroFile.rotate` also accepts scipy `Rotation`).
+Ported from mylibs' `pre_coordinator` / `rosette_maker`; coordinates agree with them to ~1e-16 nm.
 
 
 
