@@ -171,11 +171,14 @@ class MDParameters:
 
     @classmethod
     def from_text(cls, text: str) -> "MDParameters":
-        """Parse .mdp text. Comments (``;``) are dropped, including trailing ones."""
+        """
+        Parse .mdp text. Comment-only lines are dropped; a trailing ``; comment``
+        stays part of the value (and is written back by ``export``), as in mylibs.
+        """
         mdp = cls()
-        for lineno, raw in enumerate(text.splitlines(), start=1):
-            line = raw.split(";", 1)[0].strip()
-            if not line:
+        for lineno, raw in enumerate(text.split("\n"), start=1):
+            line = raw.strip()
+            if not line or line.startswith(";"):
                 continue
             if "=" not in line:
                 raise ValueError(f"line {lineno}: expected 'key = value', got {raw!r}")
@@ -247,6 +250,7 @@ class MDParameters:
                 continue
             if "\n" in text or "\r" in text:
                 err(key, "value contains a newline (would inject extra mdp lines)")
+            text = text.split(";", 1)[0]  # a trailing comment is not part of the value for GROMACS
             n = normalize_key(key)
             if n in seen:
                 err(key, f"duplicate of {seen[n]!r} (GROMACS treats them as the same option)")
@@ -319,6 +323,9 @@ class MDParameters:
         if len(set(lengths.values())) > 1:
             err(lambda_keys[0], f"lambda arrays differ in length: {lengths}")
 
+        if norm.get("continuation", "no").lower() == "yes" and norm.get("gen-vel", "no").lower() == "yes":
+            warn(seen["continuation"], "continuation=yes with gen_vel=yes: velocities are regenerated although "
+                 "the run claims to continue; use gen_vel=no (or continuation=no)")
         if integrator in ("steep", "cg", "l-bfgs") and norm.get("gen-vel", "no").lower() == "yes":
             warn(seen.get("gen-vel", "gen_vel"), "gen_vel=yes has no effect for energy minimization")
         return issues
@@ -343,7 +350,7 @@ class MDParameters:
         """The time step in ps (``default`` if missing or not a number)."""
         value = self.get("dt")
         try:
-            return float(value) if value is not None else default
+            return float(str(value).split(";", 1)[0]) if value is not None else default
         except ValueError:
             return default
 
