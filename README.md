@@ -1,5 +1,7 @@
 # gmx_harness
 
+English | [日本語](README.ja.md)
+
 A library that **generates** GROMACS simulation pipelines (EM → NVT → NPT → production, solvation, box operations, Martini, AWH, BAR) as a set of files and bash scripts. It comes bundled with the harness an AI agent (and also human) needs to handle it safely.
 It was split out of the `gromacs` package in mylibs (`yagaiG-libs`).
 
@@ -37,7 +39,6 @@ save_json(steps, "pipeline.json")
 plan = build_plan(steps, "start.gro", "work", extra_inputs=["topo.top", "mol.itp"])
 # renaming / files for later steps:
 # build_plan(..., extra_inputs={"topo.top": "MOL_fixed.top"}, step_inputs={"npt": {"index.ndx": "MOL.ndx"}})
-# PLUMED: MD(..., mdrun_args=["-plumed", "plumed.dat"], extra_files={"plumed.dat": text})
 print(plan.summary())
 print(plan.preview())
 plan.write()                                     # OverwritePolicy.ERROR (default)
@@ -115,8 +116,7 @@ from gmx_harness import MD, MDType, Layout, MoleculeLabels, preprocess_file
 
 layout = Layout(MoleculeLabels.from_gro("MOL_labeled.gro"), nmol=60, nros=6)  # residue column = fragment labels
 text = preprocess_file("metad_twist.plumed.in", layout, {"NDISK": 10, "BIAS_IFACE": 4})
-metad = MD(type=MDType.v_rescale_c_rescale, calculation_name="metad", gen_vel="no",
-           mdrun_args=["-plumed", "plumed.dat"], extra_files={"plumed.dat": text})
+metad = MD(type=MDType.v_rescale_c_rescale, calculation_name="metad", gen_vel="no", plumed=text)
 ```
 
 Templates are PLUMED input plus `#define` / `#for v in a..b` / `#endfor` / `#include`, `{expr}` and
@@ -150,6 +150,7 @@ Ported from mylibs' `pre_coordinator` / `rosette_maker`; coordinates agree with 
 | `gromacs.calculation.*` | `gmx_harness.*` (same class names) |
 | `gromacs.mdp` | `gmx_harness.mdp` (`check(key)` still works, `validate()` / `ensure_valid()` added) |
 | `gromacs.itp`, `gromacs.relax`, `gromacs.analyzing` | `gmx_harness.itp`, `gmx_harness.relax`, `gmx_harness.analysis` |
+| `gromacs.pre_coordinator`, `gromacs.rosette_maker` | `gmx_harness.build` (`precoordinate2`, `make_rosette2`, `make_oligorosette`, `Assembly`, ...) |
 | `mole.gro.GroFile` | `gmx_harness.GroFile` (no dependency on `mole`) |
 | `base_utils.plotlib.load_xvgdata` | `gmx_harness.load_xvg` (returns `XvgData`; the first row is no longer dropped) |
 | `launch(..., full_overwrite)` | Requires `confirm=True`, and only for directories gmx_harness created |
@@ -159,7 +160,7 @@ Ported from mylibs' `pre_coordinator` / `rosette_maker`; coordinates agree with 
 
 Intentional behaviour changes: the per-step scripts use `set -eo pipefail` and stop on failure; `freeze` exits with status 1;
 `generate_xtc.sh` no longer prompts or launches ovito; `print` output goes to `logging` (`gmx_harness` logger);
-trailing comments in the mdp templates are stripped.
+re-running `run.sh` never overwrites the inputs of finished steps and skips grompp when a checkpoint exists.
 
 ## Development
 
