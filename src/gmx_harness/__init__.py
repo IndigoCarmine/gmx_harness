@@ -39,7 +39,7 @@ from .pipeline import (
     launch,
 )
 from .safety import UnsafeNameError, UnsafeOperationError
-from .scripts import DEFAULT_CONFIG, GmxConfig, gmx_command
+from .scripts import gmx_command
 from .serialization import from_json, load_json, save_json, to_json
 from .steps import (
     AWH,
@@ -93,8 +93,6 @@ __all__ = [
     "OverwriteType",
     "generate_stepbystep_runfile",
     "generate_batch_execution_script",
-    "GmxConfig",
-    "DEFAULT_CONFIG",
     "gmx_command",
     # serialization
     "save_json",

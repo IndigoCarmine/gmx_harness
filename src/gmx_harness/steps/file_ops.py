@@ -10,16 +10,17 @@ import warnings
 from typing import override
 
 from ..safety import UnsafeOperationError, validate_filename, validate_name, validate_resname
-from ..scripts import DEFAULT_CONFIG, NOOP_GROMPP, GmxConfig, body_script, gmx_command
-from .base import Calculation, default_file_content
+from .. import topology
+from ..scripts import NOOP_GROMPP, body_script, gmx_command
+from .base import Calculation
 
 
-def _remove_residue_lines(config: GmxConfig, resname: str, source: str = "input.gro") -> list[str]:
+def _remove_residue_lines(resname: str, source: str = "input.gro") -> list[str]:
     ndx = f"without{resname}.ndx"
     return [
         gmx_command("make_ndx", ["-f", source, "-o", ndx], stdin=f"!r{resname}\nq"),
         gmx_command("trjconv", ["-f", source, "-s", source, "-o", "output.gro", "-n", ndx], stdin=f"!{resname}"),
-        f"{config.python} top_tool.py remove-molecule {resname}",
+        topology.remove_molecule(resname),
     ]
 
 
@@ -35,11 +36,10 @@ class RemoveResidue(Calculation):
         self.resname = validate_resname(resname)
 
     @override
-    def generate(self, config: GmxConfig = DEFAULT_CONFIG) -> dict[str, str]:
+    def generate(self) -> dict[str, str]:
         return {
             "grommp.sh": NOOP_GROMPP,
-            "top_tool.py": default_file_content("top_tool.py"),
-            "mdrun.sh": body_script(config, "\n".join(_remove_residue_lines(config, self.resname))),
+            "mdrun.sh": body_script("\n".join(_remove_residue_lines(self.resname))),
         }
 
 
@@ -60,16 +60,15 @@ class ResizeBox(Calculation):
         self.remove_resname = validate_resname(remove_resname) if remove_resname is not None else None
 
     @override
-    def generate(self, config: GmxConfig = DEFAULT_CONFIG) -> dict[str, str]:
+    def generate(self) -> dict[str, str]:
         box = [str(self.x), str(self.y), str(self.z)]
         files = {"grommp.sh": NOOP_GROMPP}
         if self.remove_resname is not None:
-            lines = _remove_residue_lines(config, self.remove_resname)
+            lines = _remove_residue_lines(self.remove_resname)
             lines.append(gmx_command("editconf", ["-f", "output.gro", "-o", "output.gro", "-box", *box], stdin="1"))
-            files["top_tool.py"] = default_file_content("top_tool.py")
         else:
             lines = [gmx_command("editconf", ["-f", "input.gro", "-o", "output.gro", "-box", *box], stdin="1")]
-        files["mdrun.sh"] = body_script(config, "\n".join(lines))
+        files["mdrun.sh"] = body_script("\n".join(lines))
         return files
 
 
@@ -89,7 +88,7 @@ class AddFiles(Calculation):
         self.files = dict(files)
 
     @override
-    def generate(self, config: GmxConfig = DEFAULT_CONFIG) -> dict[str, str]:
+    def generate(self) -> dict[str, str]:
         return {
             **self.files,
             "grommp.sh": NOOP_GROMPP,
@@ -99,7 +98,7 @@ class AddFiles(Calculation):
 
 class RawShellStep(Calculation):
     """
-    Escape hatch: run an arbitrary bash ``command`` (``inner_gmx`` is defined).
+    Escape hatch: run an arbitrary bash ``command`` (``"$GMX"`` is the GROMACS command).
     The command is NOT validated, so it must be enabled with ``allow_unsafe=True``.
     It is responsible for writing output.gro. ``allow_unsafe`` is never saved
     to JSON; ``load_json`` needs ``allow_unsafe=True`` again.
@@ -115,9 +114,9 @@ class RawShellStep(Calculation):
         self.command = command
 
     @override
-    def generate(self, config: GmxConfig = DEFAULT_CONFIG) -> dict[str, str]:
+    def generate(self) -> dict[str, str]:
         body = "# WARNING: user-supplied command below is not validated by gmx_harness\n" + self.command
-        return {"grommp.sh": NOOP_GROMPP, "mdrun.sh": body_script(config, body)}
+        return {"grommp.sh": NOOP_GROMPP, "mdrun.sh": body_script(body)}
 
 
 class FileControl(RawShellStep):

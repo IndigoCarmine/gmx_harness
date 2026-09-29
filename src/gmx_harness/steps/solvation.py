@@ -7,7 +7,8 @@ import numpy as np
 import numpy.typing as npt
 
 from ..safety import validate_name
-from ..scripts import NOOP_GROMPP, PY, body_script, gmx_command
+from .. import topology
+from ..scripts import NOOP_GROMPP, body_script, gmx_command
 from .base import Calculation, default_file_content, logger
 
 # Solvents that ship with a .gro/.itp in gmx_harness/data, with (mass g/mol, density g/cm^3).
@@ -28,10 +29,6 @@ def molecules_to_fill(cell_size: npt.ArrayLike, solvent: str = "MCH", rate: floa
     mass, density = _SOLVENTS[_check_solvent(solvent)]
     volume = float(np.prod(np.asarray(cell_size, dtype=float)))
     return int(volume / (mass / density) * rate * _AVOGADRO_SCALED)
-
-
-def _tool(*args: str) -> str:
-    return " ".join([PY, "top_tool.py", *args])
 
 
 class Solvation(Calculation):
@@ -68,14 +65,13 @@ class Solvation(Calculation):
                      "-o", "output.gro"],
                 )
                 + " 2>&1 | tee insert.log",
-                _tool("add-molecules", "--from-log", "insert.log", "--resname", s, "--include-itp", f"{s}.itp"),
+                topology.add_molecules_from_log(s, "insert.log", include_itp=f"{s}.itp"),
             ]
         )
         return {
             "mdrun.sh": body_script(body),
             f"{s}.itp": default_file_content(f"{s}.itp"),
             f"{s}.gro": default_file_content(f"{s}.gro"),
-            "top_tool.py": default_file_content("top_tool.py"),
             "grommp.sh": NOOP_GROMPP,
         }
 
@@ -102,19 +98,17 @@ class RuntimeSolvation(Calculation):
         mass, density = _SOLVENTS[s]
         body = "\n".join(
             [
-                "NMOL=$(" + _tool("solvent-count", "input.gro", "--rate", str(self.rate),
-                                  "--mass", str(mass), "--density", str(density)) + ")",
+                "NMOL=" + topology.solvent_count("input.gro", mass, density, self.rate),
                 'echo "inserting $NMOL molecules"',
                 f'"$GMX" insert-molecules -f input.gro -ci {s}.gro -nmol "$NMOL" -try {self.ntry}'
                 " -o output.gro 2>&1 | tee insert.log",
-                _tool("add-molecules", "--from-log", "insert.log", "--resname", s, "--include-itp", f"{s}.itp"),
+                topology.add_molecules_from_log(s, "insert.log", include_itp=f"{s}.itp"),
             ]
         )
         return {
             "mdrun.sh": body_script(body),
             f"{s}.itp": default_file_content(f"{s}.itp"),
             f"{s}.gro": default_file_content(f"{s}.gro"),
-            "top_tool.py": default_file_content("top_tool.py"),
             "grommp.sh": NOOP_GROMPP,
         }
 
@@ -135,13 +129,12 @@ class SolvationSCP216(Calculation):
         body = "\n".join(
             [
                 gmx_command("solvate", ["-cp", "input.gro", "-cs", "spc216.gro", "-o", "output.gro", "-p", "dummy.top"]),
-                _tool("add-molecules", "--from-dummy", "dummy.top"),
+                topology.add_molecules_from_dummy("dummy.top"),
             ]
         )
         return {
             "dummy.top": "",
             "grommp.sh": NOOP_GROMPP,
-            "top_tool.py": default_file_content("top_tool.py"),
             "mdrun.sh": body_script(body),
         }
 
@@ -170,14 +163,15 @@ class SolvationMCH(Calculation):
                     ["-cp", "input.gro", "-cs", "MCH_solventbox.gro", "-o", "output.gro", "-p", "dummy.top",
                      "-scale", str(self.scale)],
                 ),
-                _tool("add-molecules", "--from-dummy", "dummy.top"),
-                _tool("include-itp", "MCH.itp"),
+                # two edits, like mylibs (top_mod.py then add_mchitp.py): topo_old.top ends up
+                # holding the topology after the molecule line was added
+                topology.add_molecules_from_dummy("dummy.top"),
+                topology.include_itp("MCH.itp"),
             ]
         )
         return {
             "dummy.top": "",
             "grommp.sh": NOOP_GROMPP,
-            "top_tool.py": default_file_content("top_tool.py"),
             "mdrun.sh": body_script(body),
             "MCH.itp": default_file_content("MCH.itp"),
             "MCH_solventbox.gro": default_file_content("MCH_solventbox.gro"),

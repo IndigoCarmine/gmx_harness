@@ -9,7 +9,6 @@ from typing import Any
 
 from ..mdp import MDParameters
 from ..safety import validate_define, validate_name
-from ..scripts import DEFAULT_CONFIG, GmxConfig
 
 logger = logging.getLogger("gmx_harness")
 
@@ -23,7 +22,7 @@ class Calculation(ABC):
     """
     One step of a GROMACS pipeline (one numbered directory).
 
-    ``generate(config)`` returns ``{file name: content}``. It must contain
+    ``generate()`` returns ``{file name: content}``. It must contain
     ``mdrun.sh``; ``grommp.sh`` is optional (a no-op is written if missing).
     Each step reads ``input.gro`` (+ ``topo.top``/``*.itp`` handed over by
     the previous step) and must produce ``output.gro``.
@@ -36,7 +35,7 @@ class Calculation(ABC):
     calculation_name: str
 
     @abstractmethod
-    def generate(self, config: GmxConfig = DEFAULT_CONFIG) -> dict[str, str]:
+    def generate(self) -> dict[str, str]:
         raise NotImplementedError
 
     @property

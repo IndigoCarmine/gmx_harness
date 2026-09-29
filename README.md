@@ -24,7 +24,7 @@ pip install "gmx-harness @ git+<URL of this repository>"
 ## Usage
 
 ```python
-from gmx_harness import EM, MD, MDType, GmxConfig, OverwritePolicy, build_plan, save_json
+from gmx_harness import EM, MD, MDType, OverwritePolicy, build_plan, save_json
 
 steps = [
     EM(),
@@ -34,9 +34,7 @@ steps = [
 ]
 save_json(steps, "pipeline.json")
 
-plan = build_plan(steps, "start.gro", "work",
-                  extra_inputs=["topo.top", "mol.itp"],
-                  config=GmxConfig(binary="gmx_mpi", env={"OMP_NUM_THREADS": "8"}))
+plan = build_plan(steps, "start.gro", "work", extra_inputs=["topo.top", "mol.itp"])
 print(plan.summary())
 print(plan.preview())
 plan.write()                                     # OverwritePolicy.ERROR (default)
@@ -55,6 +53,17 @@ work/
 ```
 
 Run it: `cd work && bash run.sh`. Placing a `freeze` file in a step directory stops that step.
+
+The scripts contain nothing specific to the machine that generated them; GROMACS is looked up when they run,
+so the directory can be copied to a cluster as is. Environment variables on the running machine:
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `GMX` | GROMACS command | first of `gmx_d`, `gmx_mpi`, `gmx` on PATH |
+| `MDRUN_ARGS` | extra arguments for every `mdrun` (e.g. `"-ntomp 8 -gpu_id 0"`) | none |
+
+Besides GROMACS, the scripts only need bash and awk (topology edits after solvation are done with awk).
+Load GROMACS the usual way before running (`module load gromacs`, `source .../GMXRC`, job script, ...).
 
 ### Steps
 
@@ -76,14 +85,15 @@ Other: `MDParameters` (mdp editing and validation), `GroFile` (.gro/.ndx), `load
 
 | mylibs | gmx_harness |
 |---|---|
-| `gromacs.calculation.*` | `gmx_harness.*` (same class names; `generate()` takes an optional `GmxConfig`) |
+| `gromacs.calculation.*` | `gmx_harness.*` (same class names) |
 | `gromacs.mdp` | `gmx_harness.mdp` (`check(key)` still works, `validate()` / `ensure_valid()` added) |
 | `gromacs.itp`, `gromacs.relax`, `gromacs.analyzing` | `gmx_harness.itp`, `gmx_harness.relax`, `gmx_harness.analysis` |
 | `mole.gro.GroFile` | `gmx_harness.GroFile` (no dependency on `mole`) |
 | `base_utils.plotlib.load_xvgdata` | `gmx_harness.load_xvg` (returns `XvgData`; the first row is no longer dropped) |
 | `launch(..., full_overwrite)` | Requires `confirm=True`, and only for directories gmx_harness created |
+| `save_json` / `load_json` (list of `__class__` dicts) | Own versioned format `{"format": "gmx_harness.pipeline", "version": 1, "steps": [{"type", "params"}]}`; mylibs JSON cannot be loaded |
 | `FileControl(name, cmd)` | `RawShellStep(name, cmd, allow_unsafe=True)`; `FileControl.remove_MCH` → `RemoveResidue` |
-| `sed -i '/MCH/d' topol.top` | `top_tool.py remove-molecule MCH` (touches only [ molecules ] and the #include; also fixes the topol.top typo) |
+| `sed -i '/MCH/d' topol.top` | `RemoveResidue` / `ResizeBox`: an awk edit in the generated script that touches only [ molecules ] and the #include (also fixes the topol.top typo) |
 
 Intentional behaviour changes: the per-step scripts use `set -eo pipefail` and stop on failure; `freeze` exits with status 1;
 `generate_xtc.sh` no longer prompts or launches ovito; `print` output goes to `logging` (`gmx_harness` logger);
