@@ -7,6 +7,7 @@ from typing import override
 from pydantic.dataclasses import dataclass
 
 from .. import mdp
+from ..safety import validate_filename
 from ..scripts import generate_xtc_script, grompp_script, mdrun_script
 from .base import Calculation, apply_common_mdp, check_common, default_file_content, log_time_span, logger
 
@@ -28,17 +29,25 @@ def _md_files(
     index_file: str | None = None,
     single_domain: bool = False,
     xtc: bool = True,
+    mdrun_args: list[str] | None = None,
+    extra_files: dict[str, str] | None = None,
 ) -> dict[str, str]:
     mdp_file.ensure_valid(strict=strict)
+    # Coarse-grained boxes are small; a single domain avoids DD "box smaller
+    # than 2*cell" errors while OpenMP still uses every core.
+    pre = (["-ntmpi", "1"] if single_domain else []) + [str(a) for a in mdrun_args or []]
     files = {
         "setting.mdp": mdp_file.export(),
         "grommp.sh": grompp_script(maxwarn=maxwarn, restraint=restraint, index_file=index_file),
-        # Coarse-grained boxes are small; a single domain avoids DD "box smaller
-        # than 2*cell" errors while OpenMP still uses every core.
-        "mdrun.sh": mdrun_script(extra_args=["-ntmpi", "1"] if single_domain else None),
+        "mdrun.sh": mdrun_script(extra_args=pre or None),
     }
     if xtc:
         files["generate_xtc.sh"] = generate_xtc_script()
+    for name, content in (extra_files or {}).items():
+        validate_filename(name, "extra_files name")
+        if name in files or name in ("run.sh", "copy.sh", "input.gro", "output.gro", "topo.top"):
+            raise ValueError(f"extra_files: {name} would replace a file gmx_harness manages")
+        files[name] = content
     return files
 
 
@@ -64,6 +73,8 @@ class EM(Calculation):
     maxwarn: int = 0
     useRestraint: bool = False
     additional_mdp_parameters: MDPExtra = dataclasses.field(default_factory=dict)
+    mdrun_args: list[str] = dataclasses.field(default_factory=list)
+    extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
     strict_mdp: bool = True
 
     def __post_init__(self) -> None:
@@ -77,7 +88,13 @@ class EM(Calculation):
         for key, value in self.additional_mdp_parameters.items():
             mdp_file.add_or_update(key, str(value))
         return _md_files(
-            mdp_file, strict=self.strict_mdp, maxwarn=self.maxwarn, restraint=self.useRestraint, xtc=False
+            mdp_file,
+            strict=self.strict_mdp,
+            maxwarn=self.maxwarn,
+            restraint=self.useRestraint,
+            xtc=False,
+            mdrun_args=self.mdrun_args,
+            extra_files=self.extra_files,
         )
 
 
@@ -115,6 +132,8 @@ class MD(Calculation):
         useSemiisotropic: semiisotropic pressure coupling (NPT types only).
         additional_mdp_parameters: any extra/overriding mdp options (applied last-but-one; flexible escape hatch).
         continuation: mdp ``continuation`` (True/False -> yes/no). None keeps the template value.
+        mdrun_args: extra mdrun arguments placed right after ``mdrun`` (e.g. ["-plumed", "plumed.dat"]).
+        extra_files: additional files for this step, {file name: content} (e.g. {"plumed.dat": text}).
         strict_mdp: raise on mdp validation errors (False: only warn).
     """
 
@@ -129,6 +148,8 @@ class MD(Calculation):
     useRestraint: bool = False
     useSemiisotropic: bool = False
     additional_mdp_parameters: MDPExtra = dataclasses.field(default_factory=dict)
+    mdrun_args: list[str] = dataclasses.field(default_factory=list)
+    extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
     continuation: bool | None = None
     strict_mdp: bool = True
 
@@ -167,7 +188,13 @@ class MD(Calculation):
             mdp_file.add_or_update("ref_p", " ".join([str(mdp_file.get("ref_p"))] * 2))
             mdp_file.add_or_update("compressibility", " ".join([str(mdp_file.get("compressibility"))] * 2))
         return _md_files(
-            mdp_file, strict=self.strict_mdp, maxwarn=self.maxwarn, restraint=self.useRestraint)
+            mdp_file,
+            strict=self.strict_mdp,
+            maxwarn=self.maxwarn,
+            restraint=self.useRestraint,
+            mdrun_args=self.mdrun_args,
+            extra_files=self.extra_files,
+        )
 
 
 @dataclass(kw_only=True)
@@ -181,6 +208,8 @@ class MartiniEM(Calculation):
     maxwarn: int = 10  # CG runs routinely emit benign grompp notes
     useRestraint: bool = False
     additional_mdp_parameters: MDPExtra = dataclasses.field(default_factory=dict)
+    mdrun_args: list[str] = dataclasses.field(default_factory=list)
+    extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
     strict_mdp: bool = True
 
     def __post_init__(self) -> None:
@@ -200,6 +229,8 @@ class MartiniEM(Calculation):
         return _md_files(
             mdp_file,
             strict=self.strict_mdp,
+            mdrun_args=self.mdrun_args,
+            extra_files=self.extra_files,
             maxwarn=self.maxwarn,
             restraint=self.useRestraint,
             single_domain=True,
@@ -225,6 +256,8 @@ class MartiniMD(Calculation):
     useRestraint: bool = False
     useSemiisotropic: bool = False
     additional_mdp_parameters: MDPExtra = dataclasses.field(default_factory=dict)
+    mdrun_args: list[str] = dataclasses.field(default_factory=list)
+    extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
     continuation: bool | None = None
     strict_mdp: bool = True
 
@@ -261,6 +294,8 @@ class MartiniMD(Calculation):
         return _md_files(
             mdp_file,
             strict=self.strict_mdp,
+            mdrun_args=self.mdrun_args,
+            extra_files=self.extra_files,
             maxwarn=self.maxwarn,
             restraint=self.useRestraint,
             single_domain=True,
@@ -287,6 +322,8 @@ class AWH(Calculation):
     maxwarn: int = 0
     useRestraint: bool = False
     index_file: str = "index.ndx"
+    mdrun_args: list[str] = dataclasses.field(default_factory=list)
+    extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
     continuation: bool | None = None
     strict_mdp: bool = True
 
@@ -324,6 +361,8 @@ class AWH(Calculation):
         return _md_files(
             mdp_file,
             strict=self.strict_mdp,
+            mdrun_args=self.mdrun_args,
+            extra_files=self.extra_files,
             maxwarn=self.maxwarn,
             restraint=self.useRestraint,
             index_file=self.index_file or None,
@@ -360,6 +399,8 @@ class BarMethod(Calculation):
     couple_lamda0: str = "vdw"
     couple_lamda1: str = "none"
     nstdhdl: int = 100
+    mdrun_args: list[str] = dataclasses.field(default_factory=list)
+    extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
     continuation: bool | None = None
     strict_mdp: bool = True
 
@@ -407,4 +448,10 @@ class BarMethod(Calculation):
         for key, value in self.additional_mdp_parameters.items():
             mdp_file.add_or_update(key, str(value))
         return _md_files(
-            mdp_file, strict=self.strict_mdp, maxwarn=self.maxwarn, restraint=self.useRestraint)
+            mdp_file,
+            strict=self.strict_mdp,
+            maxwarn=self.maxwarn,
+            restraint=self.useRestraint,
+            mdrun_args=self.mdrun_args,
+            extra_files=self.extra_files,
+        )

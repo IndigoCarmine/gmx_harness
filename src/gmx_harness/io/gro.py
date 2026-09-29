@@ -122,6 +122,27 @@ class GroFile:
         with open(file_path, "w", newline="\n") as f:
             f.write("\n".join(self.generate_gro_text()))
 
+    def generate_pdb_text(self) -> str:
+        """PDB text (coordinates converted to Angstrom) with a CRYST1 box line, for viewers."""
+        nm_to_angstrom = 10.0
+        box = (self.box_x * nm_to_angstrom, self.box_y * nm_to_angstrom, self.box_z * nm_to_angstrom)
+        lines = [f"TITLE     {self.title}",
+                 f"CRYST1{box[0]:9.3f}{box[1]:9.3f}{box[2]:9.3f}"
+                 f"{self.box_angle_x:7.2f}{self.box_angle_y:7.2f}{self.box_angle_z:7.2f} P 1           1"]
+        for a in self.atoms:
+            name = a.atom_name if len(a.atom_name) >= 4 else " " + a.atom_name
+            x, y, z = a.coordinate * nm_to_angstrom
+            lines.append(
+                f"ATOM  {a.index % 100000:5d} {name:<4.4} {a.residue_name:<4.4} {a.residue_number % 10000:4d}    "
+                f"{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}{0.0:6.2f}          {a.atom_symbol:>2}"
+            )
+        lines.append("END")
+        return "\n".join(lines) + "\n"
+
+    def save_pdb(self, file_path: str) -> None:
+        with open(file_path, "w", newline="\n") as f:
+            f.write(self.generate_pdb_text())
+
     def renumber(self, start: int = 1) -> None:
         for i, atom in enumerate(self.atoms):
             atom.index = i + start

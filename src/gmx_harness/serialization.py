@@ -12,7 +12,8 @@ Format::
     }
 
 ``type`` is the step class name, ``params`` its constructor arguments
-(``Calculation.params()``); enums are stored by member name.
+(``Calculation.params()``) except those left at their default; enums are
+stored by member name.
 """
 
 import enum
@@ -54,12 +55,28 @@ def _enum_params(cls: type) -> dict[str, type[enum.Enum]]:
     return out
 
 
+def _non_default_params(calc: Calculation) -> dict[str, Any]:
+    """
+    ``calc.params()`` without the values that are exactly the constructor default.
+
+    Defaults are not type-converted by pydantic (``emtol: float = 300`` stays the
+    int 300 and is written as ``300``) but loaded values are (``300.0``), so
+    storing defaults would make a reloaded pipeline generate different text.
+    """
+    defaults = {k: p.default for k, p in inspect.signature(type(calc)).parameters.items()
+                if p.default is not inspect.Parameter.empty}
+    return {
+        k: v for k, v in calc.params().items()
+        if not (k in defaults and type(v) is type(defaults[k]) and v == defaults[k])
+    }
+
+
 def to_json(calculations: list[Calculation]) -> str:
-    """Serialize steps to a JSON string."""
+    """Serialize steps to a JSON string (parameters left at their default are omitted)."""
     doc = {
         "format": FORMAT,
         "version": VERSION,
-        "steps": [{"type": type(c).__name__, "params": c.params()} for c in calculations],
+        "steps": [{"type": type(c).__name__, "params": _non_default_params(c)} for c in calculations],
     }
     return json.dumps(doc, indent=2)
 
