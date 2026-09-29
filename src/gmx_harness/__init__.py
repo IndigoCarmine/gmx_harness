@@ -24,9 +24,21 @@ and ``gmx_harness.analysis`` (MDAnalysis trajectory analysis).
 __version__ = "0.1.0"
 
 from .agent_harness import install_skills
+from .build import (
+    Assembly,
+    make_half_rosette2,
+    make_oligorosette,
+    make_rosette,
+    make_rosette2,
+    pre_coordinate,
+    precoordinate2,
+)
 from .io import GroAtom, GroFile, XvgData, load_xvg, parse_xvg
 from .itp import generate_inermolecular_interactions
+from .index import format_ndx, molecule_atoms, write_ndx
+from .jobs import render_job_script, write_job_scripts
 from .mdp import MDParameters, MDPValidationError, ValidationIssue, validate_mdp_text
+from .plumed import Layout, MoleculeLabels, PreprocessError, preprocess, preprocess_file
 from .pipeline import (
     OverwritePolicy,
     OverwriteType,
@@ -41,6 +53,7 @@ from .pipeline import (
 from .safety import UnsafeNameError, UnsafeOperationError
 from .scripts import gmx_command
 from .serialization import from_json, load_json, save_json, to_json
+from .topfile import add_conditional_include, prepare_topology, set_molecule_count
 from .steps import (
     AWH,
     EM,
@@ -104,6 +117,14 @@ __all__ = [
     "MDPValidationError",
     "ValidationIssue",
     "validate_mdp_text",
+    # structure building
+    "Assembly",
+    "pre_coordinate",
+    "precoordinate2",
+    "make_rosette",
+    "make_rosette2",
+    "make_half_rosette2",
+    "make_oligorosette",
     # files
     "GroAtom",
     "GroFile",
@@ -113,6 +134,21 @@ __all__ = [
     "generate_inermolecular_interactions",
     # AI harness
     "install_skills",
+    # index / topology preparation / batch jobs
+    "molecule_atoms",
+    "format_ndx",
+    "write_ndx",
+    "set_molecule_count",
+    "add_conditional_include",
+    "prepare_topology",
+    "render_job_script",
+    "write_job_scripts",
+    # PLUMED templates
+    "Layout",
+    "MoleculeLabels",
+    "PreprocessError",
+    "preprocess",
+    "preprocess_file",
     # safety
     "UnsafeNameError",
     "UnsafeOperationError",

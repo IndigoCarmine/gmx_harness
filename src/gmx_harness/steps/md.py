@@ -8,7 +8,7 @@ from pydantic.dataclasses import dataclass
 
 from .. import mdp
 from ..safety import validate_filename
-from ..scripts import generate_xtc_script, grompp_script, mdrun_script
+from ..scripts import extend_script, generate_xtc_script, grompp_script, mdrun_script
 from .base import Calculation, apply_common_mdp, check_common, default_file_content, log_time_span, logger
 
 MDPExtra = dict[str, str | int | float]
@@ -31,18 +31,24 @@ def _md_files(
     xtc: bool = True,
     mdrun_args: list[str] | None = None,
     extra_files: dict[str, str] | None = None,
+    plumed: str | None = None,
 ) -> dict[str, str]:
     mdp_file.ensure_valid(strict=strict)
+    if plumed is not None and "-plumed" in (mdrun_args or []):
+        raise ValueError("give the PLUMED input either as plumed= or via mdrun_args/extra_files, not both")
     # Coarse-grained boxes are small; a single domain avoids DD "box smaller
     # than 2*cell" errors while OpenMP still uses every core.
     pre = (["-ntmpi", "1"] if single_domain else []) + [str(a) for a in mdrun_args or []]
     files = {
         "setting.mdp": mdp_file.export(),
         "grommp.sh": grompp_script(maxwarn=maxwarn, restraint=restraint, index_file=index_file),
-        "mdrun.sh": mdrun_script(extra_args=pre or None),
+        "mdrun.sh": mdrun_script(extra_args=pre or None, plumed=plumed is not None),
     }
-    if xtc:
+    if xtc:  # dynamics (not minimization): trajectory conversion and extension
         files["generate_xtc.sh"] = generate_xtc_script()
+        files["extend.sh"] = extend_script()
+    if plumed is not None:
+        files["plumed.dat"] = plumed
     for name, content in (extra_files or {}).items():
         validate_filename(name, "extra_files name")
         if name in files or name in ("run.sh", "copy.sh", "input.gro", "output.gro", "topo.top"):
@@ -121,7 +127,7 @@ class MD(Calculation):
 
     Attributes:
         type: ensemble preset (MDType).
-        calculation_name: directory/step name ([A-Za-z0-9_.-]).
+        calculation_name: directory/step name ([A-Za-z0-9_.+-]).
         nsteps: number of steps (time = nsteps * dt).
         nstout: output interval for trr/edr (nstxout/nstvout/nstfout/nstenergy).
         gen_vel: "yes" to generate velocities at ``temperature``, else "no".
@@ -132,7 +138,8 @@ class MD(Calculation):
         useSemiisotropic: semiisotropic pressure coupling (NPT types only).
         additional_mdp_parameters: any extra/overriding mdp options (applied last-but-one; flexible escape hatch).
         continuation: mdp ``continuation`` (True/False -> yes/no). None keeps the template value.
-        mdrun_args: extra mdrun arguments placed right after ``mdrun`` (e.g. ["-plumed", "plumed.dat"]).
+        plumed: PLUMED input text; written as plumed.dat and run with ``-plumed`` (restarts add RESTART).
+        mdrun_args: extra mdrun arguments placed right after ``mdrun``.
         extra_files: additional files for this step, {file name: content} (e.g. {"plumed.dat": text}).
         strict_mdp: raise on mdp validation errors (False: only warn).
     """
@@ -150,6 +157,7 @@ class MD(Calculation):
     additional_mdp_parameters: MDPExtra = dataclasses.field(default_factory=dict)
     mdrun_args: list[str] = dataclasses.field(default_factory=list)
     extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
+    plumed: str | None = None
     continuation: bool | None = None
     strict_mdp: bool = True
 
@@ -194,6 +202,7 @@ class MD(Calculation):
             restraint=self.useRestraint,
             mdrun_args=self.mdrun_args,
             extra_files=self.extra_files,
+            plumed=self.plumed,
         )
 
 
@@ -258,6 +267,7 @@ class MartiniMD(Calculation):
     additional_mdp_parameters: MDPExtra = dataclasses.field(default_factory=dict)
     mdrun_args: list[str] = dataclasses.field(default_factory=list)
     extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
+    plumed: str | None = None
     continuation: bool | None = None
     strict_mdp: bool = True
 
@@ -296,6 +306,7 @@ class MartiniMD(Calculation):
             strict=self.strict_mdp,
             mdrun_args=self.mdrun_args,
             extra_files=self.extra_files,
+            plumed=self.plumed,
             maxwarn=self.maxwarn,
             restraint=self.useRestraint,
             single_domain=True,
@@ -324,6 +335,7 @@ class AWH(Calculation):
     index_file: str = "index.ndx"
     mdrun_args: list[str] = dataclasses.field(default_factory=list)
     extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
+    plumed: str | None = None
     continuation: bool | None = None
     strict_mdp: bool = True
 
@@ -363,6 +375,7 @@ class AWH(Calculation):
             strict=self.strict_mdp,
             mdrun_args=self.mdrun_args,
             extra_files=self.extra_files,
+            plumed=self.plumed,
             maxwarn=self.maxwarn,
             restraint=self.useRestraint,
             index_file=self.index_file or None,
@@ -401,6 +414,7 @@ class BarMethod(Calculation):
     nstdhdl: int = 100
     mdrun_args: list[str] = dataclasses.field(default_factory=list)
     extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
+    plumed: str | None = None
     continuation: bool | None = None
     strict_mdp: bool = True
 
@@ -454,4 +468,5 @@ class BarMethod(Calculation):
             restraint=self.useRestraint,
             mdrun_args=self.mdrun_args,
             extra_files=self.extra_files,
+            plumed=self.plumed,
         )

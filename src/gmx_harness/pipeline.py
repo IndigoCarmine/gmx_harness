@@ -25,7 +25,7 @@ from pathlib import Path
 
 from . import __version__
 from .safety import UnsafeOperationError, ensure_deletable_root, ensure_within, validate_filename, validate_name
-from .scripts import NOOP_GROMPP, copy_script, pipeline_run_script, step_run_script
+from .scripts import CARRY_DEFAULT, NOOP_GROMPP, copy_script, validate_carry, pipeline_run_script, step_run_script
 from .steps.base import Calculation
 
 MANIFEST = ".gmx_harness_manifest.json"
@@ -281,6 +281,7 @@ def build_plan(
     *,
     extra_inputs: InputFiles | None = None,
     step_inputs: Mapping[str, InputFiles] | None = None,
+    carry: Sequence[str] = CARRY_DEFAULT,
 ) -> Plan:
     """
     Plan a pipeline: ``working_dir/0_<name>/``, ``1_<name>/``, ... plus a top-level ``run.sh``.
@@ -295,6 +296,8 @@ def build_plan(
             following step at run time.
         step_inputs: files for other steps, ``{calculation_name: files}`` with ``files`` as in
             ``extra_inputs``, e.g. ``{"metad": {"index.ndx": "sp/MOL.ndx"}}``.
+        carry: file patterns each step hands to the next at run time (default ``*.top``
+            and ``*.itp``); add ``"*.ndx"`` to pass an index file down the whole pipeline.
     Returns:
         Plan (nothing is written yet).
     """
@@ -305,6 +308,7 @@ def build_plan(
     if dupes:
         raise ValueError(f"duplicate calculation names: {dupes}")
 
+    carry_t = validate_carry(tuple(carry))
     wd = Path(working_dir)
     steps = [StepPlan(i, c.name, f"{i}_{c.name}", c) for i, c in enumerate(calculations)]
     files: list[PlannedFile] = []
@@ -325,7 +329,7 @@ def build_plan(
         files.append(PlannedFile(f"{s.dirname}/run.sh", _as_bytes(step_run_script(is_last)), True))
         if not is_last:
             nxt = steps[i + 1]
-            files.append(PlannedFile(f"{s.dirname}/copy.sh", _as_bytes(copy_script(s.name, nxt.dirname, nxt.name)), True))
+            files.append(PlannedFile(f"{s.dirname}/copy.sh", _as_bytes(copy_script(s.name, nxt.dirname, nxt.name, carry_t)), True))
 
     by_name = {s.name: s.dirname for s in steps}
     unknown = sorted(set(step_inputs or {}) - set(by_name))
@@ -370,6 +374,7 @@ def launch(
     confirm: bool = False,
     extra_inputs: InputFiles | None = None,
     step_inputs: Mapping[str, InputFiles] | None = None,
+    carry: Sequence[str] = CARRY_DEFAULT,
 ) -> PlanPreview:
     """
     mylibs-compatible one-shot ``build_plan(...).write(...)``.
@@ -378,7 +383,8 @@ def launch(
     ``confirm=True`` and only works on a directory that gmx_harness created
     (it has a manifest). Prefer ``build_plan`` + ``OverwritePolicy.REPLACE_GENERATED``.
     """
-    plan = build_plan(calculations, input_gro, working_dir, extra_inputs=extra_inputs, step_inputs=step_inputs)
+    plan = build_plan(calculations, input_gro, working_dir, extra_inputs=extra_inputs, step_inputs=step_inputs,
+                      carry=carry)
     wd = Path(working_dir)
     if overwrite is OverwriteType.full_overwrite:
         if wd.exists():

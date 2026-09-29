@@ -41,6 +41,12 @@ class TestMDParameters(unittest.TestCase):
         m = MDParameters({"pcoupl": "c-rescale", "pcoupltype": "semiisotropic", "ref_p": "1", "compressibility": "4.5e-5 4.5e-5"})
         self.assertEqual(errors(m), ["ref_p"])
 
+    def test_grompp_output_mdp_is_accepted(self) -> None:
+        # grompp writes the seed it drew (often negative) and GROMACS-2026-only options into output.mdp
+        text = "gen-seed = -1591849\nld-seed = -2633729\nnnpot-active = no\ncolvars-active = no\nQMMM = no\n"
+        self.assertEqual(validate_mdp_text(text), [])
+        self.assertEqual(errors(MDParameters({"gen_seed": "abc"})), ["gen_seed"])
+
     def test_duplicate_spelling(self) -> None:
         m = MDParameters({"Pcoupl": "no", "pcoupl": "no"})
         self.assertEqual(errors(m), ["pcoupl"])

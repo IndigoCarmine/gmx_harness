@@ -52,30 +52,74 @@ def grompp_script(
     return _header() + '"$GMX" grompp ' + " ".join(shlex.quote(a) for a in args) + "\n"
 
 
-def mdrun_script(*, extra_args: list[str] | None = None) -> str:
+def mdrun_script(*, extra_args: list[str] | None = None, plumed: bool = False) -> str:
     """
     ``mdrun.sh``: runs output.tpr, resuming from output.cpt if it exists.
     ``extra_args`` (step-specific, e.g. ``-ntmpi 1``) go right after ``mdrun``;
     ``$MDRUN_ARGS`` from the running environment is appended at the end.
     stdout is copied to run.out.
+
+    With ``plumed`` the run uses ``-plumed plumed.dat``. When it continues from
+    output.cpt, PLUMED must append to HILLS/COLVAR instead of starting over, so
+    a copy with ``RESTART`` on top (plumed_restart.dat) is used unless plumed.dat
+    already says RESTART.
     """
     pre = "".join(" " + shlex.quote(a) for a in extra_args or [])
+    fresh = " -plumed plumed.dat" if plumed else ""
+    resume = ' -plumed "$PLUMED_IN"' if plumed else ""
+    restart_setup = (
+        "    if grep -qE '^[[:space:]]*RESTART([[:space:]]|$)' plumed.dat; then\n"
+        "        PLUMED_IN=plumed.dat\n"
+        "    else\n"
+        "        { echo RESTART; cat plumed.dat; } > plumed_restart.dat\n"
+        "        PLUMED_IN=plumed_restart.dat\n"
+        "    fi\n"
+    ) if plumed else ""
     return (
         _header()
         + 'if [ -f "output.cpt" ]; then\n'
-        + f'    "$GMX" mdrun{pre} -deffnm output -v -cpi output.cpt $MDRUN_ARGS | tee run.out\n'
+        + restart_setup
+        + f'    "$GMX" mdrun{pre} -deffnm output -v -cpi output.cpt{resume} $MDRUN_ARGS | tee run.out\n'
         + "else\n"
-        + f'    "$GMX" mdrun{pre} -deffnm output -v $MDRUN_ARGS | tee run.out\n'
+        + f'    "$GMX" mdrun{pre} -deffnm output -v{fresh} $MDRUN_ARGS | tee run.out\n'
         + "fi\n"
     )
 
 
+def extend_script() -> str:
+    """
+    ``extend.sh <ps>``: lengthen a finished or interrupted MD step by ``<ps>``
+    (``gmx convert-tpr -extend``), then ``bash run.sh`` continues from output.cpt
+    without re-running grompp. The previous final structure is kept as
+    output_before_extend.gro.
+    """
+    return (
+        _header()
+        + 'case "${1:-}" in\n'
+        + "    ''|*[!0-9.]*) echo \"usage: bash extend.sh <ps to add>\"; exit 2 ;;\n"
+        + "esac\n"
+        + 'if [ ! -f output.tpr ] || [ ! -f output.cpt ]; then\n'
+        + '    echo "extend.sh needs output.tpr and output.cpt from an earlier run of this step"\n'
+        + "    exit 1\n"
+        + "fi\n"
+        + '"$GMX" convert-tpr -s output.tpr -extend "$1" -o output.tpr\n'
+        + "if [ -f output.gro ]; then mv output.gro output_before_extend.gro; fi\n"
+        + 'echo "extended by $1 ps; run \'bash run.sh\' to continue from output.cpt"\n'
+    )
+
+
 def generate_xtc_script() -> str:
-    """``generate_xtc.sh``: output.trr -> output.xtc with molecules made whole. Non-interactive."""
+    """
+    ``generate_xtc.sh [GROUP] [OUTPUT]``: output.trr -> OUTPUT (default output.xtc) with
+    molecules made whole, writing group GROUP (default 0 = System), e.g.
+    ``bash generate_xtc.sh MOL mol_whole.xtc``. Non-interactive.
+    """
     return (
         _header(guard=False)
-        + 'echo 0 | "$GMX" trjconv -f output.trr -s output.tpr -o output.xtc -pbc mol\n'
-        + 'if [ ! -f output.xtc ]; then\n    echo "Failed to generate xtc file."\n    exit 1\nfi\n'
+        + 'GROUP="${1:-0}"\n'
+        + 'OUT="${2:-output.xtc}"\n'
+        + 'echo "$GROUP" | "$GMX" trjconv -f output.trr -s output.tpr -o "$OUT" -pbc mol\n'
+        + 'if [ ! -f "$OUT" ]; then\n    echo "Failed to generate $OUT."\n    exit 1\nfi\n'
     )
 
 
@@ -116,20 +160,45 @@ def step_run_script(is_last: bool) -> str:
         + "if ls ./*.pdb >/dev/null 2>&1; then\n"
         + '    echo "this calculation has problems and this is already calculated."\n'
         + "    exit 1\nfi\n\n"
-        + "bash grommp.sh\n"
+        + 'if [ -f "output.cpt" ] && [ -f "output.tpr" ]; then\n'
+        + '    echo "output.cpt found: continuing the run (grompp skipped, output.tpr kept)"\n'
+        + "else\n"
+        + "    bash grommp.sh\n"
+        + "fi\n"
         + "bash mdrun.sh\n"
         + ("" if is_last else ". ./copy.sh\n")
     )
 
 
-def copy_script(this_name: str, next_dir: str, next_name: str) -> str:
-    """``copy.sh``: hand topology files and the output structure to the next step."""
+CARRY_DEFAULT = ("*.top", "*.itp")
+_CARRY = re.compile(r"^[A-Za-z0-9_.*?\-]+$")
+
+
+def validate_carry(patterns: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    """File patterns copy.sh hands to the next step (plain globs, no paths)."""
+    for pat in patterns:
+        if not isinstance(pat, str) or not _CARRY.match(pat) or pat in (".", ".."):
+            raise UnsafeNameError(f"carry pattern {pat!r} may only use [A-Za-z0-9_.-] and * ?")
+    return tuple(patterns)
+
+
+def copy_script(this_name: str, next_dir: str, next_name: str, carry: tuple[str, ...] = CARRY_DEFAULT) -> str:
+    """
+    ``copy.sh``: hand ``carry`` files (topology by default) and the output structure
+    to the next step -- unless the next step already finished (it has output.gro).
+    Re-running a finished pipeline (or a clone of it) then cannot overwrite a later
+    step's topology with an earlier one.
+    """
     nd = shlex.quote("../" + next_dir)
     return (
-        "for f in *.top *.itp; do\n"
-        f'    if [ -e "$f" ]; then cp "$f" {nd}/; fi\n'
-        "done\n"
-        f"cp output.gro {nd}/input.gro\n"
+        f"if [ -f {nd}/output.gro ]; then\n"
+        f"    echo {shlex.quote(next_name)} already finished: its inputs are left as they are\n"
+        "else\n"
+        f"    for f in {' '.join(validate_carry(carry))}; do\n"
+        f'        if [ -e "$f" ]; then cp "$f" {nd}/; fi\n'
+        "    done\n"
+        f"    cp output.gro {nd}/input.gro\n"
+        "fi\n"
         f"echo {shlex.quote(this_name)} is done\n"
         f"echo Next calculation is {shlex.quote(next_name)}\n"
     )
@@ -139,6 +208,9 @@ def pipeline_run_script(step_dirs: list[str]) -> str:
     """Top-level ``run.sh`` running every step in order and stopping at the first failure."""
     out = ["#!/bin/bash", "set -e", 'cd "$(dirname "$0")"', ""]
     for d in step_dirs:
-        out += [f"(cd {shlex.quote(d)} && bash run.sh)", ""]
+        q = shlex.quote(d)
+        out += [f"(cd {q} && bash run.sh)",
+                f'[ -f {q}/output.gro ] || {{ echo "ERROR: {d} finished without producing output.gro"; exit 1; }}',
+                ""]
     out.append('echo "All calculations are done"')
     return "\n".join(out) + "\n"

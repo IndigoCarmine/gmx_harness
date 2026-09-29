@@ -45,7 +45,8 @@ PLACEHOLDERS = frozenset(
     {"nsteps", "nstxout", "nstvout", "nstfout", "nstenergy", "ref_t", "gen_vel", "gen_temp", "emtol"}
 )
 
-_INT_KEYS = {
+# minimum value, or None for "any integer"
+_INT_KEYS: dict[str, int | None] = {
     "nsteps": -1,  # -1 means "run forever"
     "nstcalcenergy": 0,
     "nstenergy": 0,
@@ -63,8 +64,9 @@ _INT_KEYS = {
     "nstpcouple": -1,
     "lincs-order": 1,
     "niter": 1,
-    "ld-seed": -1,
-    "gen-seed": -1,
+    # -1 = random; grompp writes the seed it actually drew (any 32-bit value) into output.mdp
+    "ld-seed": None,
+    "gen-seed": None,
     "nstcgsteep": 0,
     "nbfgscorr": 0,
 }
@@ -136,6 +138,10 @@ _KNOWN_KEYS = {
     "swapcoords", "density-guided-simulation-active", "user1-grps", "user2-grps", "userint1",
     "userint2", "userint3", "userint4", "userreal1", "userreal2", "userreal3", "userreal4",
     "nstcheckpoint",  # removed in 2018, kept for old files
+    # written by grompp 2026 into output.mdp
+    "qmmm", "shake-sor", "adress", "colvars-active", "deform-init-flow", "fmm-backend",
+    "init-lambda-counts", "init-wl-histogram-counts", "mass-repartition-factor", "nnpot-active",
+    "sim-temp-high", "sim-temp-low",
     "ns-type",  # obsolete (ignored since 2020) but present in the bundled templates
 }
 _KNOWN_PREFIXES = ("awh", "pull-", "rot-", "imd-", "swap-", "density-guided-simulation-", "qmmm-", "simulated-")
@@ -265,7 +271,8 @@ class MDParameters:
         for n, minimum in _INT_KEYS.items():
             if n in norm and norm[n] not in PLACEHOLDERS:
                 try:
-                    if int(norm[n]) < minimum:
+                    value = int(norm[n])
+                    if minimum is not None and value < minimum:
                         err(seen[n], f"must be >= {minimum}, got {norm[n]}")
                 except ValueError:
                     err(seen[n], f"must be an integer, got {norm[n]!r}")

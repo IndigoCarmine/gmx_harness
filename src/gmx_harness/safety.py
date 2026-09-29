@@ -18,8 +18,8 @@ class UnsafeOperationError(RuntimeError):
     """An operation needs explicit opt-in (``allow_unsafe=True`` / ``confirm=True``)."""
 
 
-# Step / directory names: letters, digits, "_", "-", "." -- no leading dot or dash.
-_SAFE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*$")
+# Step / directory names: letters, digits, "_", "-", ".", "+" (e.g. rot_+10) -- no leading dot, dash or plus.
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.+\-]*$")
 # A single file name inside a step directory (same alphabet, no separators).
 _SAFE_FILENAME = _SAFE_NAME
 # Preprocessor defines for grompp: NAME or NAME=VALUE without whitespace/quotes.
@@ -34,7 +34,7 @@ def validate_name(name: str, what: str = "calculation_name") -> str:
     """Return ``name`` if it is safe as a directory name and inside bash, else raise."""
     if not isinstance(name, str) or not _SAFE_NAME.match(name) or name in (".", ".."):
         raise UnsafeNameError(
-            f"{what}={name!r} is not allowed: use only letters, digits, '_', '-' and '.', "
+            f"{what}={name!r} is not allowed: use only letters, digits, '_', '-', '.' and '+', "
             "and do not start with '.' or '-'"
         )
     if len(name) > 100:
@@ -47,7 +47,7 @@ def validate_filename(name: str, what: str = "file name") -> str:
     if not isinstance(name, str) or not _SAFE_FILENAME.match(name) or name in (".", ".."):
         raise UnsafeNameError(
             f"{what}={name!r} is not allowed: it must be a plain file name made of "
-            "letters, digits, '_', '-' and '.'"
+            "letters, digits, '_', '-', '.' and '+'"
         )
     return name
 
