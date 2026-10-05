@@ -33,9 +33,17 @@ def set_molecule_count(text: str, count: int, names: list[str] | None = None) ->
     """
     Set the count of ``[ molecules ]`` entries (all of them, or only ``names``) to ``count``.
     Rewritten entries are formatted as `` NAME<pad to 16> COUNT``.
+    With several molecule types, ``names`` is required (one count for all of them is
+    almost never meant).
     """
     if count < 0:
         raise ValueError("count must be >= 0")
+    if names is None:
+        from .checks.structure import topology_molecules
+
+        types = sorted({n for n, _ in topology_molecules(text)})
+        if len(types) > 1:
+            raise ValueError(f"[ molecules ] has several types {types}: pass names=[...] to choose which to set")
     out: list[str] = []
     section = None
     seen = False

@@ -36,7 +36,7 @@ description: Use gmx_harness to design a GROMACS MD pipeline (EM → NVT → NPT
 - Any mdp option can be added or overridden with `additional_mdp_parameters={"key": value}`. It is checked when the files are generated.
 - Write `defines` without `-D` (`["POSRES"]`).
 - PLUMED and other mdrun options: `MD(..., mdrun_args=["-plumed", "plumed.dat"], extra_files={"plumed.dat": text})`.
-- PLUMED input from a template with atom selections by fragment label: `gmx_harness.preprocess_file(template, Layout(MoleculeLabels.from_gro(labeled_gro), nmol, nros), defines)` (`#define/#for/#include`, `{expr}`, `@sel(disk=, mol=, res=, name=, heavy=)`). Show the expanded text to the human before using it.
+- PLUMED input from a template with atom selections by fragment label: `gmx_harness.preprocess_file("metad.plumed.in", Layout(MoleculeLabels.from_gro(labeled_gro), nmol, nros), defines)` (the template's file path) (`#define/#for/#include`, `{expr}`, `@sel(disk=, mol=, res=, name=, heavy=)`). Show the expanded text to the human before using it.
 - Inputs: `extra_inputs={"topo.top": "MOL_fixed.top", "MOL_hbond.itp": "..."}` (first step, renaming allowed); `step_inputs={"metad": {"index.ndx": "MOL.ndx"}}` for a later step.
 
 ## 3. Generate
@@ -47,6 +47,19 @@ print(plan.summary())
 print(plan.file("1_nvt/setting.mdp"))   # show the key mdp files to the human
 print(plan.preview())
 ```
+- `print(plan.preview())` also lists the design checks (`checks:`). For an error, fix the design; if the human
+  says the issue is acceptable, pass `waive={"CODE": "their reason"}` (never on your own, never `checks=False`).
+  Errors (block the write): `L003` input.gro vs topo.top, `L002` a step needs an index file that is not planned,
+  `L004` maxwarn > 0, `L005` strict_mdp=False, `L006` raw shell step, `S011` a molecule type of topo.top not found
+  locally, most `P0xx` of the PLUMED input. Warnings (shown, do not block): `L001` PLUMED PACE/PRINT strides,
+  `P004` SIGMA small for the grid, `P010` UNITS, `P007` for a bias on raw single atoms (a single-atom COM is an error)
+  (see `gmx_harness.checks.CODES`).
+- PLUMED from a template: prefer `text, report = gmx_harness.expand_template("metad.plumed.in", layout, defines, symmetry=nros)`
+  (the first argument is the template's file path, not its text); it also reports defines the template never uses
+  (`P009`, typos). `report.enforce(WAIVE)` before using `text`.
+- `require_preflight=True` makes run.sh refuse to start until a human has run the preflight (grompp with each step's
+  maxwarn / plumed driver) and it has written `preflight.ok` (sha256sum of the planned files). The library does not
+  write `preflight.ok`; a preflight script of the workspace does. The run.sh files then also need `sha256sum`.
 - If `PlanPreview.conflicts` is not empty, report it and ask the human how to proceed.
   - To add only new steps: `plan.write(OverwritePolicy.SKIP_EXISTING)`
   - To regenerate after changing parameters: `plan.write(OverwritePolicy.REPLACE_GENERATED)`

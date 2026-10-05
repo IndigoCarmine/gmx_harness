@@ -18,6 +18,13 @@ Agents working on it follow these rules.
 4. **Do not delete or overwrite existing working directories with `rm` or `shutil`.** To regenerate, use `OverwritePolicy.REPLACE_GENERATED`.
    It only overwrites files that gmx_harness generated and that nobody has edited since.
 5. Do not hand-edit generated `.sh` files. If a change is needed, change the step parameters and regenerate.
+6. **Design checks are not optional.** `build_plan` runs `gmx_harness.checks` (codes such as `L003`, `P002`, `L004`);
+   an error makes `preview().ok` False. Fix the design. A waiver (`waive={"CODE": "reason"}`, or a script's `WAIVE`)
+   is the human's decision: explain the issue, ask, and write their reason. Never add or widen a waiver on your own,
+   and never turn checks off (`checks=False`).
+7. **Do not edit generated files or check records** (`calc*/`, `resource/{gro,top,fixed_gro,preco,rosette,sp,sp_relaxed,top_fixed}/`,
+   `*.facts.json`, `checks.json`, `postcheck.json`, `preflight.ok`, `.gmx_harness_manifest.json`). Rerun the stage script
+   that makes them.
 
 ## Workflow
 
@@ -41,3 +48,4 @@ A saved design can be reloaded with `load_json("pipeline.json")` and passed to `
 ## References
 - API: `harness/llm_docs/api.md` inside the package (`gmx_harness.agent_harness.harness_dir()`)
 - Skills: `gmx-pipeline`, `gmx-mdp-tuning`, `gmx-troubleshoot`, `gmx-relax`
+- Check codes: `gmx_harness.checks.CODES` (also in api.md)

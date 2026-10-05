@@ -11,6 +11,9 @@ It was split out of the `gromacs` package in mylibs (`yagaiG-libs`).
   and arbitrary commands can be run with `RawShellStep` (explicit opt-in required).
 - **Safety**:
   - `plan → preview → write` flow: all conflicts are checked before anything is written
+    (the only files written without a preview are the small check records `<file>.facts.json`
+    from `checks.record_facts` and `checks.json` from `Report.enforce(out_dir=...)`)
+  - Design checks (`gmx_harness.checks`) run by default; an error that is not waived with a reason refuses the write
   - Only files gmx_harness generated itself (hashes recorded in `.gmx_harness_manifest.json`) are overwritten or deleted; files a person has edited are refused
   - No interactive `input()` anywhere (it cannot hang an agent)
   - Step names, file names, defines and residue names are validated; anything that goes into a script is `shlex.quote`d
@@ -78,7 +81,8 @@ so the directory can be copied to a cluster as is. Environment variables on the 
 | `GMX` | GROMACS command | first of `gmx_d`, `gmx_mpi`, `gmx` on PATH |
 | `MDRUN_ARGS` | extra arguments for every `mdrun` (e.g. `"-ntomp 8 -gpu_id 0"`) | none |
 
-Besides GROMACS, the scripts only need bash and awk (topology edits after solvation are done with awk).
+Besides GROMACS, the scripts only need bash and awk (topology edits after solvation are done with awk);
+with `require_preflight=True` they also need `sha256sum` (GNU coreutils).
 Load GROMACS the usual way before running (`module load gromacs`, `source .../GMXRC`, job script, ...).
 
 ### Steps
@@ -122,6 +126,24 @@ metad = MD(type=MDType.v_rescale_c_rescale, calculation_name="metad", gen_vel="n
 Templates are PLUMED input plus `#define` / `#for v in a..b` / `#endfor` / `#include`, `{expr}` and
 `@sel(disk=, mol=, res=, name=, heavy=)` (atom ranges of the selected fragments). Expressions run in a
 sandbox (no dunders, lambdas or imports) and `#include` cannot leave the template's directory.
+
+### Design checks
+
+`build_plan` runs `gmx_harness.checks` by default (pure Python, nothing is executed): input.gro vs topo.top,
+maxwarn, `strict_mdp=False`, raw shell steps, PLUMED input and strides, and so on. Every issue has a stable
+code (`L003`, `P002`, ...). An error makes `preview().ok` False and `write()` refuses, unless it is waived
+with a reason:
+
+```python
+plan = build_plan(steps, "start.gro", "work", extra_inputs=["topo.top"],
+                  waive={"L004": "grompp warning about ... is expected here"})
+```
+
+A waiver needs a known code and a non-empty reason. `expand_template` checks an expanded PLUMED template
+(including defines the template ignores), `check_tree` reads logs and COLVAR after a run, and
+`require_preflight=True` makes run.sh refuse to start until `preflight.ok` (written by the workspace's own
+preflight script after running grompp/plumed) exists and still matches. All codes: `gmx_harness.checks.CODES`
+(also listed in `harness/llm_docs/api.md`).
 
 ### Building structures from .gro
 

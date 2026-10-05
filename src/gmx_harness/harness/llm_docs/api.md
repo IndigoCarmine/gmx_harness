@@ -24,6 +24,10 @@ Quick start::
     print(plan.preview())
     plan.write()
 
+Design checks (``gmx_harness.checks``): ``build_plan`` checks the planned pipeline, and the
+stage scripts of a workspace hand values on with ``record_facts`` / ``expect``; errors
+stop the script unless waived per code with a reason (``report.enforce(WAIVE)``).
+
 Not imported here: ``gmx_harness.relax`` (OpenMM soft-core pre-relaxation; heavy import)
 and ``gmx_harness.analysis`` (MDAnalysis trajectory analysis).
 
@@ -303,7 +307,7 @@ Methods:
 - classmethod `remove_MCH(cls, name: str) -> gmx_harness.steps.file_ops.RemoveResidue` - 
 - classmethod `cell_resizing(cls, name: str, x: float, y: float, z: float) -> gmx_harness.steps.file_ops.ResizeBox` - 
 
-### `build_plan(calculations: list[gmx_harness.steps.base.Calculation], input_gro: str | os.PathLike[str], working_dir: str | os.PathLike[str], *, extra_inputs: collections.abc.Sequence[str | os.PathLike[str]] | collections.abc.Mapping[str, str | os.PathLike[str]] | None = None, step_inputs: collections.abc.Mapping[str, collections.abc.Sequence[str | os.PathLike[str]] | collections.abc.Mapping[str, str | os.PathLike[str]]] | None = None, carry: collections.abc.Sequence[str] = ('*.top', '*.itp')) -> gmx_harness.pipeline.Plan`
+### `build_plan(calculations: list[gmx_harness.steps.base.Calculation], input_gro: str | os.PathLike[str], working_dir: str | os.PathLike[str], *, extra_inputs: collections.abc.Sequence[str | os.PathLike[str]] | collections.abc.Mapping[str, str | os.PathLike[str]] | None = None, step_inputs: collections.abc.Mapping[str, collections.abc.Sequence[str | os.PathLike[str]] | collections.abc.Mapping[str, str | os.PathLike[str]]] | None = None, carry: collections.abc.Sequence[str] = ('*.top', '*.itp'), checks: bool = True, waive: collections.abc.Mapping[str, str] | None = None, require_preflight: bool = False) -> gmx_harness.pipeline.Plan`
 Plan a pipeline: ``working_dir/0_<name>/``, ``1_<name>/``, ... plus a top-level ``run.sh``.
 
 Args:
@@ -318,20 +322,27 @@ Args:
         ``extra_inputs``, e.g. ``{"metad": {"index.ndx": "sp/MOL.ndx"}}``.
     carry: file patterns each step hands to the next at run time (default ``*.top``
         and ``*.itp``); add ``"*.ndx"`` to pass an index file down the whole pipeline.
+    checks: run the design checks (``gmx_harness.checks.check_plan``); their errors make
+        ``preview().ok`` False and ``write()`` refuse, unless listed in ``waive``.
+    waive: ``{"CODE": "reason"}`` for check errors that are accepted on purpose.
+    require_preflight: the generated run.sh files refuse to start unless ``preflight.ok``
+        (``sha256sum`` lines of the planned files, written by the workspace's preflight
+        run of grompp/plumed) exists next to the top-level run.sh and still matches.
 Returns:
     Plan (nothing is written yet).
 
-### class `Plan(working_dir: pathlib._local.Path, steps: list[gmx_harness.pipeline.StepPlan], files: list[gmx_harness.pipeline.PlannedFile])`
+### class `Plan(working_dir: pathlib._local.Path, steps: list[gmx_harness.pipeline.StepPlan], files: list[gmx_harness.pipeline.PlannedFile], report: gmx_harness.checks.report.Report | None = None, waive: collections.abc.Mapping[str, str] | None = None)`
 Everything ``build_plan`` decided to write. Inspect with ``summary()`` / ``preview()``, then ``write()``.
 
 Methods:
 - `summary(self) -> str` - Step list and the files of each step (no disk access).
 - `file(self, relpath: str) -> str` - Content of one planned file, e.g. ``plan.file("1_md/setting.mdp")``.
 - `preview(self, overwrite: gmx_harness.pipeline.OverwritePolicy = <OverwritePolicy.ERROR: 'error'>, *, force_modified: bool = False) -> gmx_harness.pipeline.PlanPreview` - Compare the plan with the disk. Pure read; nothing is changed.
-- `write(self, overwrite: gmx_harness.pipeline.OverwritePolicy = <OverwritePolicy.ERROR: 'error'>, *, force_modified: bool = False) -> gmx_harness.pipeline.PlanPreview` - Write the plan. Raises ``PlanConflictError`` (without writing anything) on conflicts.
+- `write(self, overwrite: gmx_harness.pipeline.OverwritePolicy = <OverwritePolicy.ERROR: 'error'>, *, force_modified: bool = False) -> gmx_harness.pipeline.PlanPreview` - Write the plan. Raises ``PlanConflictError`` (without writing anything) on conflicts
 
-### class `PlanPreview(working_dir: str, policy: str, create: list[str] = <factory>, overwrite: list[str] = <factory>, unchanged: list[str] = <factory>, remove: list[str] = <factory>, skipped_steps: list[str] = <factory>, started_steps: list[str] = <factory>, conflicts: list[str] = <factory>, stale_outputs: list[str] = <factory>, written: bool = False) -> None`
-Result of ``Plan.preview`` / ``Plan.write``. ``ok`` is False when there are conflicts.
+### class `PlanPreview(working_dir: str, policy: str, create: list[str] = <factory>, overwrite: list[str] = <factory>, unchanged: list[str] = <factory>, remove: list[str] = <factory>, skipped_steps: list[str] = <factory>, started_steps: list[str] = <factory>, conflicts: list[str] = <factory>, stale_outputs: list[str] = <factory>, issues: list[gmx_harness.checks.report.Issue] = <factory>, waived: dict[str, str] = <factory>, written: bool = False) -> None`
+Result of ``Plan.preview`` / ``Plan.write``. ``ok`` is False when there are conflicts
+or design-check errors that are not waived (``check_errors``); ``write`` then refuses.
 
 | field | type | default |
 |---|---|---|
@@ -345,9 +356,12 @@ Result of ``Plan.preview`` / ``Plan.write``. ``ok`` is False when there are conf
 | `started_steps` | `list` | `[]` |
 | `conflicts` | `list` | `[]` |
 | `stale_outputs` | `list` | `[]` |
+| `issues` | `list` | `[]` |
+| `waived` | `dict` | `{}` |
 | `written` | `bool` | `False` |
 
 Methods:
+- property `check_errors` - Design-check errors (``gmx_harness.checks``) that are not waived.
 - property `ok` - 
 
 ### class `PlanConflictError(preview: 'PlanPreview')`  (bases: RuntimeError)
@@ -560,6 +574,8 @@ Write ``format_ndx(groups)`` to ``path``.
 ### `set_molecule_count(text: str, count: int, names: list[str] | None = None) -> str`
 Set the count of ``[ molecules ]`` entries (all of them, or only ``names``) to ``count``.
 Rewritten entries are formatted as `` NAME<pad to 16> COUNT``.
+With several molecule types, ``names`` is required (one count for all of them is
+almost never meant).
 
 ### `add_conditional_include(text: str, itp: str, define: str = 'INTER') -> str`
 Append ``#ifdef DEFINE / #include "itp" / #endif`` at the end of the topology.
@@ -591,19 +607,21 @@ Methods:
 - `indices(self, disk: Any = None, mol: Any = None, res: Any = None, name: Any = None, heavy: bool = False) -> list[int]` - 1-based atom indices of the selection (see module docstring).
 - `sel(self, **kw: Any) -> str` - ``indices(**kw)`` in PLUMED range notation.
 
-### class `MoleculeLabels(labels: tuple[str, ...], names: tuple[str, ...]) -> None`
+### class `MoleculeLabels(labels: tuple[str, ...], names: tuple[str, ...], masses: tuple[float, ...] | None = None) -> None`
 Per-atom fragment label (residue-name column) and atom name of one monomer, in gro order.
 
 | field | type | default |
 |---|---|---|
 | `labels` | `tuple` | `required` |
 | `names` | `tuple` | `required` |
+| `masses` | `tuple[float, ...] | None` | `None` |
 
 Methods:
 - classmethod `from_gro(cls, path: str | os.PathLike[str]) -> 'MoleculeLabels'` - 
 - classmethod `from_grofile(cls, gro: gmx_harness.io.gro.GroFile) -> 'MoleculeLabels'` - 
 - property `natoms` - 
 - `heavy(self, i: int) -> bool` - 
+- `with_masses_from_top(self, top_text: str) -> 'MoleculeLabels'` - Copy with the masses of the first ``[ atoms ]`` block of a topology (same atom order).
 
 ### class `PreprocessError(...)`  (bases: ValueError)
 A template could not be expanded (the message names the template line).
@@ -618,11 +636,183 @@ usable as ``{name(...)}`` / ``@name(...)`` (``sel`` and ``join`` are always ther
 ### `preprocess_file(path: str | os.PathLike[str], layout: gmx_harness.plumed.Layout, defines: dict[str, typing.Any] | None = None, helpers: dict[str, collections.abc.Callable[..., typing.Any]] | None = None) -> str`
 ``preprocess`` a template file; ``#include`` is resolved relative to (and confined to) its directory.
 
+### `CODES` = `{'F001': 'a value this script assumes differs from the value the producing script recorded', 'F002': 'a value this script assumes was never recorded upstream', 'F003': 'an input changed after the facts of a file were recorded (stale result)', 'F004': 'the file has no facts (it was not made by a stage script that records them)', 'F005': 'the file changed after its facts were recorded (edited by hand?)', 'S001': 'gro atom count differs from the molecules of the topology', 'S002': 'atom count is not a whole number of molecules', 'S003': '[ molecules ] has several molecule types where one was expected', 'S004': 'a box edge is shorter than the minimum', 'S005': 'a periodic fiber does not close on its image (ndisk*rot not a multiple of 360/nros)', 'S006': 'a bond atom number is outside the monomer (or monomer pair)', 'S007': 'a built bond length is outside the expected range', 'S008': 'atoms of different molecules are closer than the threshold', 'S009': 'atom names/order of the system differ from the labeled monomer', 'S010': 'an index group is empty or refers to atoms outside the structure', 'S011': "a molecule's atom count could not be determined from the topology", 'P001': 'a PLUMED label is defined twice', 'P002': 'ARG/ATOMS refers to a label that is not defined', 'P003': 'the METAD grid does not match the periodicity of its CV', 'P004': 'METAD SIGMA is small compared with the grid spacing', 'P005': 'a bias acts on a label that is not defined', 'P006': 'the n-fold symmetry in the CV (sin/cos/atan2) differs from nros', 'P007': 'a COM/CENTER uses a single atom, or a bias acts on raw single atoms', 'P008': 'an atom index exceeds the number of atoms of the system', 'P009': 'a define passed from Python is not used by the template', 'P010': 'PLUMED UNITS missing or not nm / kJ/mol', 'L001': 'PLUMED PACE/PRINT stride does not divide nsteps/nstout', 'L002': 'a step needs an index file that is not planned', 'L003': "the first step's input.gro does not match its topo.top", 'L004': 'maxwarn > 0 (grompp warnings are ignored)', 'L005': 'strict_mdp=False (mdp validation errors are ignored)', 'L006': 'a raw shell step (unchecked command) is in the pipeline', 'G001': "grompp failed in the preflight (with the step's maxwarn)", 'G002': 'plumed driver failed (or wrote no COLVAR row) on the step-0 structure', 'G003': 'a CV on the step-0 (relaxed) structure differs from the value it was built with', 'G004': 'the step-0 structure CV check could not run (rot/nros not recorded upstream)', 'R001': 'NaN in COLVAR or the log', 'R002': 'LINCS warnings in the log', 'R003': 'GPU error (Xid / CUDA error) in the job output', 'R004': 'the biased CV barely moves (stalled)', 'R005': 'GROMACS fatal error in the log', 'R006': "a step started but did not finish (no output.gro, no 'Finished mdrun' in the log)", 'W001': 'a waiver was given for a code that did not occur'}`
+
+### class `HarnessCheckError(report: 'Report', waive: collections.abc.Mapping[str, str])`  (bases: RuntimeError)
+A check found errors that are not waived (``report`` lists everything).
+
+### class `Report(issues: list[gmx_harness.checks.report.Issue] = <factory>) -> None`
+Issues found by one or more checks.
+
+| field | type | default |
+|---|---|---|
+| `issues` | `list` | `[]` |
+
+Methods:
+- `add(self, code: str, level: Literal['error', 'warn', 'info'], message: str, where: str = '') -> None` - 
+- `error(self, code: str, message: str, where: str = '') -> None` - 
+- `warn(self, code: str, message: str, where: str = '') -> None` - 
+- `info(self, code: str, message: str, where: str = '') -> None` - 
+- `extend(self, other: 'Report | Iterable[Issue]') -> 'Report'` - Add issues (an identical issue already present is not repeated).
+- `errors(self, waive: collections.abc.Mapping[str, str] | None = None) -> list[gmx_harness.checks.report.Issue]` - Errors that are not waived (``waive`` is checked with ``validate_waivers``).
+- `ok(self, waive: collections.abc.Mapping[str, str] | None = None) -> bool` - 
+- `format(self, waive: collections.abc.Mapping[str, str] | None = None) -> str` - 
+- `to_dict(self, waive: collections.abc.Mapping[str, str] | None = None) -> dict[str, object]` - 
+- `enforce(self, waive: collections.abc.Mapping[str, str] | None = None, *, out_dir: str | os.PathLike[str] | None = None, name: str = 'checks.json', quiet: bool = False) -> 'Report'` - Print the report, write it to ``out_dir/name`` if given, and raise
+
+### `record_facts(path: str | os.PathLike[str], *, script: str | os.PathLike[str], inputs: collections.abc.Iterable[str | os.PathLike[str]] = (), **facts: Any) -> pathlib._local.Path`
+Write ``<path>.facts.json``: ``facts`` (free keys), the producing ``script`` (pass
+``__file__``) and the sha256 of ``path`` and of each of ``inputs``. Call it right
+after writing ``path``. Returns the facts file.
+
+### `expect(path: str | os.PathLike[str], *, tol: float = 1e-06, fresh: bool = True, **expected: Any) -> gmx_harness.checks.report.Report`
+Compare what this script assumes (``expected``) with the facts recorded for ``path``
+(or inherited from its inputs). F001 mismatch, F002 never recorded; with ``fresh``
+also ``check_fresh`` (F003-F005). Returns a Report; call ``.enforce(WAIVE)``.
+
+### `check_fresh(path: str | os.PathLike[str], *, recursive: bool = True) -> gmx_harness.checks.report.Report`
+F004/F005/F003: the facts of ``path`` exist and neither it nor its inputs changed since.
+
+### `expand_template(path: str | os.PathLike[str], layout: gmx_harness.plumed.Layout, defines: dict[str, typing.Any] | None = None, *, natoms: int | None = None, symmetry: int | None = None, helpers: dict[str, collections.abc.Callable[..., typing.Any]] | None = None) -> tuple[str, gmx_harness.checks.report.Report]`
+Expand a template (``gmx_harness.plumed``) and check the result: (plumed.dat text, Report).
+
 ### class `UnsafeNameError(...)`  (bases: ValueError)
 A name or token would be unsafe in a path or a generated shell script.
 
 ### class `UnsafeOperationError(...)`  (bases: RuntimeError)
 An operation needs explicit opt-in (``allow_unsafe=True`` / ``confirm=True``).
+
+## gmx_harness.checks
+
+Design checks: stop a wrong design before anything is computed.
+
+Every check returns a ``Report`` of ``Issue``s with stable codes (``CODES``);
+``report.enforce(WAIVE)`` raises ``HarnessCheckError`` unless every error is
+waived with a reason, ``WAIVE = {"S004": "box tested in run 123, no self-contact"}``.
+
+Layers (all pure Python; nothing here runs GROMACS or PLUMED):
+
+- ``facts``: values handed from one stage script to the next (``record_facts`` / ``expect``)
+- ``structure``: gro / top / itp / ndx consistency
+- ``plumed``: static PLUMED input checks, template expansion with unused-define detection
+- ``plan``: a planned pipeline (``build_plan(..., checks=True)`` runs it)
+- ``postrun``: logs and COLVAR after a run
+
+``python -m gmx_harness.checks <dir>`` lists the facts files below ``dir``.
+
+### `CODES` = `{'F001': 'a value this script assumes differs from the value the producing script recorded', 'F002': 'a value this script assumes was never recorded upstream', 'F003': 'an input changed after the facts of a file were recorded (stale result)', 'F004': 'the file has no facts (it was not made by a stage script that records them)', 'F005': 'the file changed after its facts were recorded (edited by hand?)', 'S001': 'gro atom count differs from the molecules of the topology', 'S002': 'atom count is not a whole number of molecules', 'S003': '[ molecules ] has several molecule types where one was expected', 'S004': 'a box edge is shorter than the minimum', 'S005': 'a periodic fiber does not close on its image (ndisk*rot not a multiple of 360/nros)', 'S006': 'a bond atom number is outside the monomer (or monomer pair)', 'S007': 'a built bond length is outside the expected range', 'S008': 'atoms of different molecules are closer than the threshold', 'S009': 'atom names/order of the system differ from the labeled monomer', 'S010': 'an index group is empty or refers to atoms outside the structure', 'S011': "a molecule's atom count could not be determined from the topology", 'P001': 'a PLUMED label is defined twice', 'P002': 'ARG/ATOMS refers to a label that is not defined', 'P003': 'the METAD grid does not match the periodicity of its CV', 'P004': 'METAD SIGMA is small compared with the grid spacing', 'P005': 'a bias acts on a label that is not defined', 'P006': 'the n-fold symmetry in the CV (sin/cos/atan2) differs from nros', 'P007': 'a COM/CENTER uses a single atom, or a bias acts on raw single atoms', 'P008': 'an atom index exceeds the number of atoms of the system', 'P009': 'a define passed from Python is not used by the template', 'P010': 'PLUMED UNITS missing or not nm / kJ/mol', 'L001': 'PLUMED PACE/PRINT stride does not divide nsteps/nstout', 'L002': 'a step needs an index file that is not planned', 'L003': "the first step's input.gro does not match its topo.top", 'L004': 'maxwarn > 0 (grompp warnings are ignored)', 'L005': 'strict_mdp=False (mdp validation errors are ignored)', 'L006': 'a raw shell step (unchecked command) is in the pipeline', 'G001': "grompp failed in the preflight (with the step's maxwarn)", 'G002': 'plumed driver failed (or wrote no COLVAR row) on the step-0 structure', 'G003': 'a CV on the step-0 (relaxed) structure differs from the value it was built with', 'G004': 'the step-0 structure CV check could not run (rot/nros not recorded upstream)', 'R001': 'NaN in COLVAR or the log', 'R002': 'LINCS warnings in the log', 'R003': 'GPU error (Xid / CUDA error) in the job output', 'R004': 'the biased CV barely moves (stalled)', 'R005': 'GROMACS fatal error in the log', 'R006': "a step started but did not finish (no output.gro, no 'Finished mdrun' in the log)", 'W001': 'a waiver was given for a code that did not occur'}`
+
+### class `HarnessCheckError(report: 'Report', waive: collections.abc.Mapping[str, str])`  (bases: RuntimeError)
+A check found errors that are not waived (``report`` lists everything).
+
+### class `Issue(code: str, level: Literal['error', 'warn', 'info'], message: str, where: str = '') -> None`
+Issue(code: str, level: Literal['error', 'warn', 'info'], message: str, where: str = '')
+
+| field | type | default |
+|---|---|---|
+| `code` | `str` | `required` |
+| `level` | `Literal` | `required` |
+| `message` | `str` | `required` |
+| `where` | `str` | `''` |
+
+### class `Report(issues: list[gmx_harness.checks.report.Issue] = <factory>) -> None`
+Issues found by one or more checks.
+
+| field | type | default |
+|---|---|---|
+| `issues` | `list` | `[]` |
+
+Methods:
+- `add(self, code: str, level: Literal['error', 'warn', 'info'], message: str, where: str = '') -> None` - 
+- `error(self, code: str, message: str, where: str = '') -> None` - 
+- `warn(self, code: str, message: str, where: str = '') -> None` - 
+- `info(self, code: str, message: str, where: str = '') -> None` - 
+- `extend(self, other: 'Report | Iterable[Issue]') -> 'Report'` - Add issues (an identical issue already present is not repeated).
+- `errors(self, waive: collections.abc.Mapping[str, str] | None = None) -> list[gmx_harness.checks.report.Issue]` - Errors that are not waived (``waive`` is checked with ``validate_waivers``).
+- `ok(self, waive: collections.abc.Mapping[str, str] | None = None) -> bool` - 
+- `format(self, waive: collections.abc.Mapping[str, str] | None = None) -> str` - 
+- `to_dict(self, waive: collections.abc.Mapping[str, str] | None = None) -> dict[str, object]` - 
+- `enforce(self, waive: collections.abc.Mapping[str, str] | None = None, *, out_dir: str | os.PathLike[str] | None = None, name: str = 'checks.json', quiet: bool = False) -> 'Report'` - Print the report, write it to ``out_dir/name`` if given, and raise
+
+### `validate_waivers(waive: collections.abc.Mapping[str, str] | None) -> dict[str, str]`
+Known codes with a non-empty reason only.
+
+### `record_facts(path: str | os.PathLike[str], *, script: str | os.PathLike[str], inputs: collections.abc.Iterable[str | os.PathLike[str]] = (), **facts: Any) -> pathlib._local.Path`
+Write ``<path>.facts.json``: ``facts`` (free keys), the producing ``script`` (pass
+``__file__``) and the sha256 of ``path`` and of each of ``inputs``. Call it right
+after writing ``path``. Returns the facts file.
+
+### `expect(path: str | os.PathLike[str], *, tol: float = 1e-06, fresh: bool = True, **expected: Any) -> gmx_harness.checks.report.Report`
+Compare what this script assumes (``expected``) with the facts recorded for ``path``
+(or inherited from its inputs). F001 mismatch, F002 never recorded; with ``fresh``
+also ``check_fresh`` (F003-F005). Returns a Report; call ``.enforce(WAIVE)``.
+
+### `check_fresh(path: str | os.PathLike[str], *, recursive: bool = True) -> gmx_harness.checks.report.Report`
+F004/F005/F003: the facts of ``path`` exist and neither it nor its inputs changed since.
+
+### `read_facts(path: str | os.PathLike[str]) -> dict[str, typing.Any] | None`
+The raw facts record of ``path`` (None if there is none).
+
+### `lookup(path: str | os.PathLike[str], key: str) -> tuple[typing.Any, str, pathlib._local.Path] | None`
+(value, producing script, file) of ``key`` for ``path``, searching its inputs breadth first.
+
+### `facts_path(path: str | os.PathLike[str]) -> pathlib._local.Path`
+``<file>.facts.json`` next to ``path``.
+
+### `check_topology(gro: gmx_harness.io.gro.GroFile | int, top_text: str, *, base: str | os.PathLike[str] | None = None, files: collections.abc.Mapping[str, str] | None = None, where: str = '', single_type: bool = False) -> gmx_harness.checks.report.Report`
+S001: gro atoms == topology atoms; S003 (with ``single_type``): only one molecule type.
+
+### `check_whole_molecules(natoms_total: int, natoms_per_mol: int, where: str = '') -> gmx_harness.checks.report.Report`
+S002: ``natoms_total`` is a whole number of ``natoms_per_mol`` molecules.
+
+### `check_box(gro: gmx_harness.io.gro.GroFile, min_edge: float, where: str = '') -> gmx_harness.checks.report.Report`
+S004: every box edge >= ``min_edge`` nm.
+
+### `check_periodic_twist(ndisk: int, rot: float, nros: int, where: str = '', tol: float = 1e-06) -> gmx_harness.checks.report.Report`
+S005: a fiber closed on its periodic image needs ndisk*rot to be a multiple of 360/nros.
+
+### `check_bond_pairs(bonds: collections.abc.Sequence[tuple[int, int]], natoms: int, where: str = '') -> gmx_harness.checks.report.Report`
+S006: (a, b) with a in the monomer and b in the monomer pair (1..2*natoms).
+
+### `check_bond_lengths(gro: gmx_harness.io.gro.GroFile, bonds: collections.abc.Sequence[tuple[int, int]], lo: float, hi: float, where: str = '') -> gmx_harness.checks.report.Report`
+S007: every built bond (global 1-based atom pairs) is between ``lo`` and ``hi`` nm.
+
+### `check_contacts(gro: gmx_harness.io.gro.GroFile, natoms_per_mol: int, threshold: float = 0.1, where: str = '') -> gmx_harness.checks.report.Report`
+S008 (warn): atoms of different molecules closer than ``threshold`` nm (no PBC; cell list).
+
+### `check_labels(gro: gmx_harness.io.gro.GroFile, label_names: collections.abc.Sequence[str], nmol: int, offset: int = 0, where: str = '') -> gmx_harness.checks.report.Report`
+S009: atoms offset.. of the system repeat the labeled monomer's atom names ``nmol`` times.
+
+### `check_ndx(ndx: str | os.PathLike[str], natoms: int, required: collections.abc.Iterable[str] = (), where: str = '') -> gmx_harness.checks.report.Report`
+S010: every group non-empty and within 1..natoms; ``required`` groups exist.
+
+### `topology_molecules(text: str) -> list[tuple[str, int]]`
+``[ molecules ]`` entries (name, count) in order.
+
+### `check_plumed(text: str, *, natoms: int | None = None, symmetry: int | None = None, where: str = 'plumed.dat') -> gmx_harness.checks.report.Report`
+Static checks P001-P008, P010 (see module docstring).
+
+### `parse_plumed(text: str) -> list[gmx_harness.checks.plumed.Action]`
+Actions of a PLUMED input (comments removed, ``...`` continuation blocks joined).
+
+### `expand_template(path: str | os.PathLike[str], layout: gmx_harness.plumed.Layout, defines: dict[str, typing.Any] | None = None, *, natoms: int | None = None, symmetry: int | None = None, helpers: dict[str, collections.abc.Callable[..., typing.Any]] | None = None) -> tuple[str, gmx_harness.checks.report.Report]`
+Expand a template (``gmx_harness.plumed``) and check the result: (plumed.dat text, Report).
+
+### `check_plan(plan: 'Plan') -> gmx_harness.checks.report.Report`
+L001-L006 plus S001/P-checks on the planned files (see ``gmx_harness.checks.CODES``).
+
+### `check_step(step_dir: str | os.PathLike[str], *, cv: str | None = 'theta', min_span: float = 0.05, tail: int = 2000) -> gmx_harness.checks.report.Report`
+R001 NaN, R002 LINCS warnings, R003 GPU error (Xid/CUDA), R005 fatal error, R006 started
+but not finished (output.log without output.gro or "Finished mdrun"), R004 the biased CV
+``cv`` spans less than ``min_span`` over the last ``tail`` COLVAR rows (stalled).
+
+### `check_tree(root: str | os.PathLike[str], *, cv: str | None = 'theta', min_span: float = 0.05, tail: int = 2000) -> gmx_harness.checks.report.Report`
+``check_step`` for every ``<system>/<i>_<step>`` below ``root`` that has run, plus R003/R005
+in the job output of each ``<system>`` directory (``sbatch_*.log``, ``slurm-*.out``,
+``<name>-<jobid>.out`` / ``.err``).
+
+### `read_colvar(path: str | os.PathLike[str]) -> tuple[list[str], list[list[float]]]`
+(FIELDS, rows) of a PLUMED COLVAR file.
 
 ## gmx_harness.relax
 

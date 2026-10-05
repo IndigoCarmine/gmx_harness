@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import __version__
+from .checks.plan import check_plan
+from .checks.report import Issue, Report, validate_waivers
 from .safety import UnsafeOperationError, ensure_deletable_root, ensure_within, validate_filename, validate_name
 from .scripts import CARRY_DEFAULT, NOOP_GROMPP, copy_script, validate_carry, pipeline_run_script, step_run_script
 from .steps.base import Calculation
@@ -58,7 +60,8 @@ class PlanConflictError(RuntimeError):
 
     def __init__(self, preview: "PlanPreview"):
         self.preview = preview
-        super().__init__("refusing to write:\n" + "\n".join(f"  - {c}" for c in preview.conflicts))
+        problems = [*preview.conflicts, *(str(i) for i in preview.check_errors)]
+        super().__init__("refusing to write:\n" + "\n".join(f"  - {c}" for c in problems))
 
 
 @dataclass(frozen=True)
@@ -82,7 +85,10 @@ class StepPlan:
 
 @dataclass
 class PlanPreview:
-    """Result of ``Plan.preview`` / ``Plan.write``. ``ok`` is False when there are conflicts."""
+    """
+    Result of ``Plan.preview`` / ``Plan.write``. ``ok`` is False when there are conflicts
+    or design-check errors that are not waived (``check_errors``); ``write`` then refuses.
+    """
 
     working_dir: str
     policy: str
@@ -94,11 +100,18 @@ class PlanPreview:
     started_steps: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     stale_outputs: list[str] = field(default_factory=list)
+    issues: list[Issue] = field(default_factory=list)
+    waived: dict[str, str] = field(default_factory=dict)
     written: bool = False
 
     @property
+    def check_errors(self) -> list[Issue]:
+        """Design-check errors (``gmx_harness.checks``) that are not waived."""
+        return Report(self.issues).errors(self.waived)
+
+    @property
     def ok(self) -> bool:
-        return not self.conflicts
+        return not self.conflicts and not self.check_errors
 
     def __str__(self) -> str:
         out = [f"working_dir: {self.working_dir}  (policy: {self.policy})"]
@@ -115,6 +128,9 @@ class PlanPreview:
             if items:
                 out.append(f"{title}: {len(items)}")
                 out += [f"    {i}" for i in items]
+        if self.issues or self.waived:
+            out.append("checks:")
+            out += [f"    {ln}" for ln in Report(self.issues).format(self.waived).splitlines()]
         out.append("status: " + ("written" if self.written else ("OK to write" if self.ok else "REFUSED")))
         return "\n".join(out)
 
@@ -137,10 +153,13 @@ def _read_manifest(working_dir: Path) -> dict[str, str]:
 class Plan:
     """Everything ``build_plan`` decided to write. Inspect with ``summary()`` / ``preview()``, then ``write()``."""
 
-    def __init__(self, working_dir: Path, steps: list[StepPlan], files: list[PlannedFile]):
+    def __init__(self, working_dir: Path, steps: list[StepPlan], files: list[PlannedFile],
+                 report: Report | None = None, waive: Mapping[str, str] | None = None):
         self.working_dir = working_dir
         self.steps = steps
         self.files = files
+        self.report = report if report is not None else Report()
+        self.waive = validate_waivers(waive)
 
     def summary(self) -> str:
         """Step list and the files of each step (no disk access)."""
@@ -166,7 +185,7 @@ class Plan:
     def preview(self, overwrite: OverwritePolicy = OverwritePolicy.ERROR, *, force_modified: bool = False) -> PlanPreview:
         """Compare the plan with the disk. Pure read; nothing is changed."""
         wd = self.working_dir
-        pv = PlanPreview(str(wd), overwrite.value)
+        pv = PlanPreview(str(wd), overwrite.value, issues=list(self.report.issues), waived=dict(self.waive))
         manifest = _read_manifest(wd)
         skipped_dirs: set[str] = set()
 
@@ -231,7 +250,10 @@ class Plan:
         return pv
 
     def write(self, overwrite: OverwritePolicy = OverwritePolicy.ERROR, *, force_modified: bool = False) -> PlanPreview:
-        """Write the plan. Raises ``PlanConflictError`` (without writing anything) on conflicts."""
+        """
+        Write the plan. Raises ``PlanConflictError`` (without writing anything) on conflicts
+        or on design-check errors that are not waived (``PlanPreview.check_errors``).
+        """
         pv = self.preview(overwrite, force_modified=force_modified)
         if not pv.ok:
             raise PlanConflictError(pv)
@@ -289,6 +311,9 @@ def build_plan(
     extra_inputs: InputFiles | None = None,
     step_inputs: Mapping[str, InputFiles] | None = None,
     carry: Sequence[str] = CARRY_DEFAULT,
+    checks: bool = True,
+    waive: Mapping[str, str] | None = None,
+    require_preflight: bool = False,
 ) -> Plan:
     """
     Plan a pipeline: ``working_dir/0_<name>/``, ``1_<name>/``, ... plus a top-level ``run.sh``.
@@ -305,6 +330,12 @@ def build_plan(
             ``extra_inputs``, e.g. ``{"metad": {"index.ndx": "sp/MOL.ndx"}}``.
         carry: file patterns each step hands to the next at run time (default ``*.top``
             and ``*.itp``); add ``"*.ndx"`` to pass an index file down the whole pipeline.
+        checks: run the design checks (``gmx_harness.checks.check_plan``); their errors make
+            ``preview().ok`` False and ``write()`` refuse, unless listed in ``waive``.
+        waive: ``{"CODE": "reason"}`` for check errors that are accepted on purpose.
+        require_preflight: the generated run.sh files refuse to start unless ``preflight.ok``
+            (``sha256sum`` lines of the planned files, written by the workspace's preflight
+            run of grompp/plumed) exists next to the top-level run.sh and still matches.
     Returns:
         Plan (nothing is written yet).
     """
@@ -333,7 +364,8 @@ def build_plan(
                 raise TypeError(f"{s.dirname}/{fname}: content must be str")
             files.append(PlannedFile(f"{s.dirname}/{fname}", _as_bytes(content), fname.endswith(".sh")))
         is_last = i == len(steps) - 1
-        files.append(PlannedFile(f"{s.dirname}/run.sh", _as_bytes(step_run_script(is_last)), True))
+        files.append(PlannedFile(f"{s.dirname}/run.sh", _as_bytes(step_run_script(is_last, require_preflight)),
+                                 True))
         if not is_last:
             nxt = steps[i + 1]
             files.append(PlannedFile(f"{s.dirname}/copy.sh", _as_bytes(copy_script(s.name, nxt.dirname, nxt.name, carry_t)), True))
@@ -355,10 +387,14 @@ def build_plan(
         taken.add(rel)
         files.append(PlannedFile(rel, srcp.read_bytes()))
 
-    files.append(PlannedFile("run.sh", _as_bytes(pipeline_run_script([s.dirname for s in steps])), True))
+    files.append(PlannedFile("run.sh", _as_bytes(pipeline_run_script([s.dirname for s in steps], require_preflight)),
+                             True))
     for f in files:
         ensure_within(wd, wd / f.relpath)
-    return Plan(wd, steps, files)
+    plan = Plan(wd, steps, files, waive=waive)
+    if checks:
+        plan.report = check_plan(plan)
+    return plan
 
 
 # ----------------------------------------------------------------------------- mylibs-compatible API

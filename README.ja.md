@@ -8,10 +8,16 @@ mylibs（`yagaiG-libs`）の `gromacs` パッケージを切り出したもの�
 - **何も実行しない**: ライブラリは `gmx` を呼びません。生成された `run.sh` は人またはジョブスケジューラが実行します。
   GROMACS・PLUMED には依存せず、依存は pip パッケージのみです（pydantic, numpy, OpenMM, MDAnalysis, pandas, openpyxl）。
 - **自由度**: どの mdp オプションも `additional_mdp_parameters` で指定できます。`Calculation` を継承すれば独自ステップも作れます。
+  任意のコマンドは `RawShellStep` で実行できます（明示的な許可が必要）。
 - **安全性**:
   - `plan → preview → write` の流れ。書き込む前にすべての衝突を確認します
+    （preview なしに書くのは、チェックの小さな記録ファイル `checks.record_facts` の `<file>.facts.json` と
+    `Report.enforce(out_dir=...)` の `checks.json` だけです）
+  - 設計チェック（`gmx_harness.checks`）が既定で走り、理由付きで waive されていないエラーがあると書き込みを拒否します
   - 上書き・削除するのは gmx_harness 自身が生成したファイル（`.gmx_harness_manifest.json` にハッシュを記録）だけで、人が編集したファイルは拒否します
   - 対話的な `input()` はどこにもありません（エージェントが止まりません）
+  - ステップ名・ファイル名・define・残基名を検証し、スクリプトに入る値はすべて `shlex.quote` します
+  - mdp の検証（置換し忘れのプレースホルダ、数値の範囲、グループ数、行の注入など）
   - 破壊的・未検査の操作には `allow_unsafe=True` / `confirm=True` / `force_modified=True` が必要です
 
 ## インストール
@@ -72,6 +78,7 @@ work/
 | `MDRUN_ARGS` | すべての `mdrun` に追加する引数（例: `"-ntomp 8 -gpu_id 0"`） | なし |
 
 GROMACS 以外にスクリプトが必要とするのは bash と awk だけです（溶媒和後の topology 編集は awk で行います）。
+`require_preflight=True` のときは `sha256sum`（GNU coreutils）も必要です。
 実行前に、いつもの方法で GROMACS を読み込んでください（`module load gromacs`、`source .../GMXRC`、ジョブスクリプトなど）。
 
 ### ステップ
@@ -114,6 +121,24 @@ metad = MD(type=MDType.v_rescale_c_rescale, calculation_name="metad", gen_vel="n
 テンプレートは PLUMED の入力に `#define` / `#for v in a..b` / `#endfor` / `#include`、`{式}`、
 `@sel(disk=, mol=, res=, name=, heavy=)`（選んだ断片の原子範囲）を加えたものです。式はサンドボックス内で評価され
 （`__` で始まる名前・lambda・import は不可）、`#include` はテンプレートのディレクトリの外を読めません。
+
+### 設計チェック
+
+`build_plan` は既定で `gmx_harness.checks` を実行します（純 Python で、何も実行しません）。input.gro と topo.top の対応、
+maxwarn、`strict_mdp=False`、生のシェルステップ、PLUMED の入力と stride などを調べます。問題にはそれぞれ固定のコード
+（`L003`、`P002` など）が付きます。エラーがあると `preview().ok` が False になり、`write()` は拒否します。
+ただし理由を書いて waive したものは除きます:
+
+```python
+plan = build_plan(steps, "start.gro", "work", extra_inputs=["topo.top"],
+                  waive={"L004": "grompp warning about ... is expected here"})
+```
+
+waiver には既知のコードと空でない理由が必要です。`expand_template` は展開後の PLUMED テンプレートを調べ
+（テンプレートが使わない define も報告）、`check_tree` は実行後のログと COLVAR を読みます。
+`require_preflight=True` にすると、`preflight.ok`（ワークスペース側の preflight スクリプトが grompp/plumed を実行して書く）が
+存在して内容が一致するまで run.sh は起動を拒否します。コードの一覧: `gmx_harness.checks.CODES`
+（`harness/llm_docs/api.md` にも記載）。
 
 ### .gro から構造を組み立てる
 
