@@ -159,6 +159,24 @@ continuous with its own image to the minimum-image length only (a triclinic box 
 preflight script after running grompp/plumed) exists and still matches. All codes: `gmx_harness.checks.CODES`
 (also listed in `harness/llm_docs/api.md`).
 
+### Archiving runs (store / export)
+
+```bash
+python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x            # preview
+python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x --write    # copy
+python -m gmx_harness.archive --root D:/md_archive tree | verify
+python -m gmx_harness.archive --root D:/md_archive export 20261012-002 restore --write   # or RUN/STEP
+```
+
+`store` copies a system directory (`<tree>/<system>/` with its `<i>_<name>` steps) into a dated run directory
+`<YYYYMMDD>-<NNN>_<tree>_<system>/` of the archive, unchanged and under the original names, with `run.json`
+(parent, step states, note, git commit, job ids) and `SHA256SUMS` (`sha256sum -c SHA256SUMS` checks it without
+gmx_harness). Steps already in the archive are not copied again: the run records the step it branches off from
+(an extension or a rerun of a step branches off just before it), and nothing is written when the state is already
+archived. The copy is checked against changes during the copy (a running job), renamed into place and made
+read-only. `export` rebuilds `DEST/<tree>/<system>/` byte for byte and never writes into an existing directory.
+Read-only files stop accidents only; use snapshots or a separate account for real protection.
+
 ### Building structures from .gro
 
 ```python

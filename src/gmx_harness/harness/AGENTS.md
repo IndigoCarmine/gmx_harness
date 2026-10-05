@@ -27,6 +27,10 @@ Agents working on it follow these rules.
 7. **Do not edit generated files or check records** (`calc*/`, `resource/{gro,top,fixed_gro,preco,rosette,sp,sp_relaxed,top_fixed}/`,
    `*.facts.json`, `checks.json`, `preflight_checks.json`, `postcheck.json`, `preflight.ok`, `.gmx_harness_manifest.json`).
    Rerun the stage script that makes them.
+8. **The archive (`gmx_harness.archive`) is append-only for you.** You may run `store` and `export` (they only preview
+   without `--write`; show the human the result). Never change, delete, move, rename or change the permissions of
+   anything inside the archive root (run directories, `run.json`, `SHA256SUMS`, `tree.json`, `.lock`, `.incoming-*`),
+   by any means. A left-over `.lock` or `.incoming-*`, or a failing `verify`, is reported to the human, who decides.
 
 ## Workflow
 

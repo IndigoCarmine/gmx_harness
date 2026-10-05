@@ -154,6 +154,23 @@ waiver には既知のコード、`@` の後の空でないパターン、空で
 存在して内容が一致するまで run.sh は起動を拒否します。コードの一覧: `gmx_harness.checks.CODES`
 （`harness/llm_docs/api.md` にも記載）。
 
+### 実行データのアーカイブ（store / export）
+
+```bash
+python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x            # プレビュー
+python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x --write    # コピー
+python -m gmx_harness.archive --root D:/md_archive tree | verify
+python -m gmx_harness.archive --root D:/md_archive export 20261012-002 restore --write   # RUN/STEP も可
+```
+
+`store` は系のディレクトリ（`<tree>/<system>/` と `<i>_<name>` のステップ）を、アーカイブの日付付きのラン
+`<YYYYMMDD>-<NNN>_<tree>_<system>/` に、元の名前と配置のまま無加工でコピーし、`run.json`（親、ステップの状態、メモ、
+git のコミット、ジョブ ID）と `SHA256SUMS`（gmx_harness なしでも `sha256sum -c SHA256SUMS` で検証できる）を書きます。
+アーカイブにあるステップは再びコピーせず、分岐元のステップを記録します（延長や再実行したステップは、その直前からの分岐に
+なります）。すでに保存済みの状態なら何も書きません。コピー中の変更（実行中のジョブ）を検出し、最後に名前を変えて読み取り
+専用にします。`export` は `DEST/<tree>/<system>/` を byte 単位で再現し、既存のディレクトリには書きません。
+読み取り専用は事故を防ぐだけなので、本当に消せなくするにはスナップショットか別ユーザーを使ってください。
+
 ### .gro から構造を組み立てる
 
 ```python

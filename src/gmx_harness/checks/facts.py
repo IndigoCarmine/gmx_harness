@@ -22,7 +22,6 @@ kept), ``expect`` / ``check_fresh`` report ``F003``.
 producer and staleness (read only).
 """
 
-import hashlib
 import json
 import math
 import os
@@ -30,6 +29,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
+from ..hashing import sha256_file
 from .report import Report
 
 SUFFIX = ".facts.json"
@@ -39,10 +39,6 @@ def facts_path(path: str | os.PathLike[str]) -> Path:
     """``<file>.facts.json`` next to ``path``."""
     p = Path(path)
     return p.with_name(p.name + SUFFIX)
-
-
-def _sha(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _jsonable(value: Any) -> Any:
@@ -75,8 +71,8 @@ def record_facts(path: str | os.PathLike[str], *, script: str | os.PathLike[str]
         ip = Path(i).resolve()
         if not ip.is_file():
             raise FileNotFoundError(f"record_facts: input {ip} does not exist")
-        ins[os.path.relpath(ip, base).replace(os.sep, "/")] = _sha(ip)
-    data = {"generator": "gmx_harness", "script": Path(script).name, "sha256": _sha(p), "inputs": ins,
+        ins[os.path.relpath(ip, base).replace(os.sep, "/")] = sha256_file(ip)
+    data = {"generator": "gmx_harness", "script": Path(script).name, "sha256": sha256_file(p), "inputs": ins,
             "facts": _jsonable(facts)}
     out = facts_path(p)
     out.write_text(json.dumps(data, indent=1, sort_keys=False) + "\n", encoding="utf-8", newline="\n")
@@ -119,14 +115,14 @@ def check_fresh(path: str | os.PathLike[str], *, recursive: bool = True) -> Repo
         if not p.is_file():
             rep.error("F003", "file is gone but its facts remain", _short(p))
             return
-        if _sha(p) != rec.get("sha256"):
+        if sha256_file(p) != rec.get("sha256"):
             rep.error("F005", f"changed after {rec.get('script')} recorded its facts; rerun {rec.get('script')}",
                       _short(p))
         for rel, digest in rec.get("inputs", {}).items():
             ip = (p.resolve().parent / rel).resolve()
             if not ip.is_file():
                 rep.error("F003", f"input {rel} of {rec.get('script')} no longer exists", _short(p))
-            elif _sha(ip) != digest:
+            elif sha256_file(ip) != digest:
                 rep.error("F003", f"input {rel} changed after {rec.get('script')} made this file; "
                                   f"rerun {rec.get('script')} (an old result was kept?)", _short(p))
             elif recursive:

@@ -20,7 +20,7 @@ Layers (all pure Python; nothing here runs GROMACS or PLUMED):
 from .facts import check_fresh, expect, facts_path, lookup, read_facts, record_facts
 from .plan import check_plan
 from .plumed import check_plumed, expand_template, parse_plumed
-from .postrun import check_step, check_tree, read_colvar
+from .postrun import check_step, check_tree, read_colvar, step_state
 from .report import CODES, HarnessCheckError, Issue, Report, validate_waivers
 from .structure import (
     check_bond_lengths,
@@ -66,4 +66,5 @@ __all__ = [
     "check_step",
     "check_tree",
     "read_colvar",
+    "step_state",
 ]

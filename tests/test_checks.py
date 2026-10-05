@@ -28,6 +28,7 @@ from gmx_harness.checks import (
     expand_template,
     expect,
     record_facts,
+    step_state,
 )
 
 NAMES = ("C1", "H1", "N1", "H2")
@@ -440,6 +441,23 @@ class TestPostrun(unittest.TestCase):
             Path(d, "sys", "7_next").mkdir()                       # not started (no output.log): not checked
             Path(d, "sys", "7_next", "setting.mdp").write_text("", encoding="utf-8")
             self.assertEqual(check_tree(d).issues, [])
+
+    def test_step_state(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            step = Path(d, "6_md")
+            step.mkdir()
+            Path(step, "setting.mdp").write_text("", encoding="utf-8")
+            self.assertEqual(step_state(step), "not_started")
+            Path(step, "run.out").write_text("", encoding="utf-8")
+            self.assertEqual(step_state(step), "started")
+            Path(step, "run.out").unlink()
+            Path(step, "output_before_extend.gro").write_text("", encoding="utf-8")
+            self.assertEqual(step_state(step), "started")             # extended, the extension not finished
+            Path(step, "output_before_extend.gro").unlink()
+            Path(step, "output.tpr").write_text("", encoding="utf-8")
+            self.assertEqual(step_state(step), "started")
+            Path(step, "output.gro").write_text("", encoding="utf-8")
+            self.assertEqual(step_state(step), "finished")
 
     def test_job_output_of_system(self) -> None:
         with tempfile.TemporaryDirectory() as d:

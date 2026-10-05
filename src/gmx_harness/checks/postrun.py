@@ -34,6 +34,19 @@ def read_colvar(path: str | os.PathLike[str]) -> tuple[list[str], list[list[floa
     return fields, rows
 
 
+def step_state(step_dir: str | os.PathLike[str]) -> str:
+    """
+    ``"finished"`` (``output.gro`` exists), ``"started"`` (some ``output.*``, ``output_before_extend.gro``
+    or ``run.out``, but no ``output.gro``) or ``"not_started"``, from the files of a step directory.
+    """
+    d = Path(step_dir)
+    if (d / "output.gro").exists():
+        return "finished"
+    if any(d.glob("output.*")) or (d / "output_before_extend.gro").exists() or (d / "run.out").exists():
+        return "started"
+    return "not_started"
+
+
 def _job_errors(name: str, text: str, rep: Report, where: str) -> None:
     """R005 fatal error, R003 GPU failure in one log / job output."""
     if _FATAL.search(text):
@@ -66,7 +79,7 @@ def check_step(step_dir: str | os.PathLike[str], *, cv: str | None = "theta", mi
         bad = [ln for ln in text.splitlines() if _NAN.search(ln) and not _PARAM.match(ln)]
         if bad:
             rep.error("R001", f"{name}: NaN/inf ({bad[0].strip()[:80]})", w)
-        if not (d / "output.gro").exists() and "Finished mdrun" not in text:
+        if step_state(d) != "finished" and "Finished mdrun" not in text:
             rep.error("R006", "output.log exists but no output.gro and no 'Finished mdrun' in the log "
                               "(timed out, crashed, or still running)", w)
     colvar = d / "COLVAR"

@@ -52,6 +52,29 @@ def validate_filename(name: str, what: str = "file name") -> str:
     return name
 
 
+_DRIVE = re.compile(r"^[A-Za-z]:")
+
+
+def validate_relpath(rel: str, what: str = "path") -> str:
+    """
+    A relative path with ``/`` separators that cannot leave its base directory: no empty path, NUL or
+    other control character, ``\\``, absolute path, drive (``C:``), or ``.`` / ``..`` / empty component.
+    Unlike ``validate_name`` it accepts any other character (``#x.1#``, a leading ``.``, ``+``, non-ASCII),
+    since it checks names of existing files (e.g. ones being archived), not names put into scripts.
+    """
+    if not isinstance(rel, str) or not rel:
+        raise UnsafeNameError(f"{what}={rel!r} is not allowed: empty path")
+    if any(ord(c) < 32 or ord(c) == 127 for c in rel):
+        raise UnsafeNameError(f"{what}={rel!r} is not allowed: control character")
+    if "\\" in rel:
+        raise UnsafeNameError(f"{what}={rel!r} is not allowed: use '/' as the separator (no '\\')")
+    if rel.startswith("/") or _DRIVE.match(rel):
+        raise UnsafeNameError(f"{what}={rel!r} is not allowed: it must be relative")
+    if any(part in ("", ".", "..") for part in rel.split("/")):
+        raise UnsafeNameError(f"{what}={rel!r} is not allowed: empty, '.' or '..' component")
+    return rel
+
+
 def validate_define(define: str) -> str:
     if not isinstance(define, str) or not _SAFE_DEFINE.match(define):
         raise UnsafeNameError(

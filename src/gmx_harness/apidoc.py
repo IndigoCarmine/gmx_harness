@@ -16,6 +16,7 @@ from typing import Any
 _SECTIONS: list[tuple[str, list[str] | None, str]] = [
     ("gmx_harness", None, "gmx_harness"),
     ("gmx_harness.checks", None, "gmx_harness.checks"),
+    ("gmx_harness.archive", None, "gmx_harness.archive"),
     ("gmx_harness.relax", ["relax", "parse_inter_bonds", "find_inter_itp", "write_gro"],
      "gmx_harness.relax"),
     ("gmx_harness.analysis", ["Recorder", "analyze_trj", "process_files", "generate_excel", "mixing_recorders",

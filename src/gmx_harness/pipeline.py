@@ -26,6 +26,7 @@ from pathlib import Path
 from . import __version__
 from .checks.plan import check_plan
 from .checks.report import Issue, Report, validate_waivers
+from .hashing import sha256_file
 from .safety import UnsafeOperationError, ensure_deletable_root, ensure_within, validate_filename, validate_name
 from .scripts import CARRY_DEFAULT, NOOP_GROMPP, copy_script, validate_carry, pipeline_run_script, step_run_script
 from .steps.base import Calculation
@@ -135,10 +136,6 @@ class PlanPreview:
         return "\n".join(out)
 
 
-def _sha(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def _read_manifest(working_dir: Path) -> dict[str, str]:
     p = working_dir / MANIFEST
     if not p.exists():
@@ -218,7 +215,7 @@ class Plan:
             if p.is_dir():
                 pv.conflicts.append(f"{f.relpath} is a directory")
                 continue
-            current = _sha(p)
+            current = sha256_file(p)
             if current == f.sha256:
                 pv.unchanged.append(f.relpath)
             elif overwrite is OverwritePolicy.ERROR:
@@ -236,7 +233,7 @@ class Plan:
                     continue
                 p = wd / rel
                 if p.is_file():
-                    if _sha(p) == digest or force_modified:
+                    if sha256_file(p) == digest or force_modified:
                         pv.remove.append(rel)
                     else:
                         pv.conflicts.append(f"{rel} is no longer planned but was modified; remove it by hand")

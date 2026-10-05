@@ -858,6 +858,214 @@ in the job output of each ``<system>`` directory (``sbatch_*.log``, ``slurm-*.ou
 ### `read_colvar(path: str | os.PathLike[str]) -> tuple[list[str], list[list[float]]]`
 (FIELDS, rows) of a PLUMED COLVAR file.
 
+### `step_state(step_dir: str | os.PathLike[str]) -> str`
+``"finished"`` (``output.gro`` exists), ``"started"`` (some ``output.*``, ``output_before_extend.gro``
+or ``run.out``, but no ``output.gro``) or ``"not_started"``, from the files of a step directory.
+
+## gmx_harness.archive
+
+Archive calculation directories as plain, dated, checksummed copies (store / export).
+
+::
+
+    python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x           # preview only
+    python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x --write   # copy
+    python -m gmx_harness.archive --root D:/md_archive tree          # lineage
+    python -m gmx_harness.archive --root D:/md_archive verify        # re-hash everything
+    python -m gmx_harness.archive --root D:/md_archive export 20261012-002 restore --write
+
+The archive is meant to be read without any tool. Files are copied unchanged, under their own
+names and in their own places; nothing is packed, split or renamed::
+
+    ARCHIVE_ROOT/
+      tree.json                          overview of every run (rebuilt from the run.json files on each store)
+      20261006-001_calc_metad_MOL_x/     one store = one run directory: <date>-<seq>_<tree>_<system>
+        run.json                         parent, steps and their state, date, source, note, git commit, job ids
+        SHA256SUMS                       "sha256sum -c SHA256SUMS" (GNU coreutils) checks every file
+        run.sh  DESCRIPTION.md  ...      the files of the system directory (<tree>/<system>/), as they were
+        0_em_vac/ ... 5_npt_unlock/      the step directories, as they were
+        _tree/                           the files directly in the tree directory (submit.sh, ...)
+      20261012-002_calc_metad_MOL_x/     a branch: it holds only its new steps
+        run.json                         "parent": "20261006-001_calc_metad_MOL_x/5_npt_unlock"
+        5_npt_unlock/copy.sh             run.sh / copy.sh of an inherited step that changed ("rewired")
+        6_md_prod/
+
+Steps are the ``<i>_<name>`` directories of a system, in numeric order. ``store`` compares them, from
+step 0 on, with the step sequence every archived run stands for (its ancestors' steps plus its own),
+by the names and sha256 of all files except each step's ``run.sh`` / ``copy.sh``. The deepest matching
+step becomes the parent and only the steps after it are copied; a step that changed (an extension, a
+rerun) therefore starts a new run that branches off just before it and holds that step whole. When the
+steps, their run.sh / copy.sh and the system's own files (except ``postcheck.json``) all match a run
+of the same ``<tree>/<system>``, nothing is written ("already archived"). Runs of other systems can be
+parents too (a variant that shares its first steps), so shared steps are stored once.
+
+A store takes ``.lock`` (never taken over automatically), copies into ``.incoming-<id>/`` while
+hashing, stops if a source file changes meanwhile (a job may still be running), writes SHA256SUMS
+and run.json, renames the directory into place and makes every file read-only. Entries of the root
+whose names start with ``.`` are ignored when reading. Real protection against deletion needs
+snapshots or a separate account; read-only files only stop accidents.
+
+``export RUN DEST`` rebuilds ``DEST/<tree>/<system>/`` (``RUN/STEP``: up to that step, without the
+records of later runs such as checks.json, postcheck.json, preflight.ok and job output), checking
+every file against SHA256SUMS. It never writes into an existing system directory. A prefix export
+keeps ``.gmx_harness_manifest.json`` as stored; it may still list files of later steps, which is
+fine because the next ``plan_*.py`` / ``build_plan(...).write`` rewrites it.
+
+Everything here is pure Python (no gmx, git or sha256sum is run); every write is previewed first.
+
+### `FORMAT` = `'gmx_harness.archive/1'`
+
+### class `ArchiveError(...)`  (bases: RuntimeError)
+A store / export / verify could not be done (unknown run, broken archive, source changed, ...).
+
+### class `ArchiveConflictError(preview: 'StorePreview | ExportPreview')`  (bases: ArchiveError)
+``write`` refused; ``.preview`` lists every conflict.
+
+### class `ArchiveLockedError(...)`  (bases: ArchiveError)
+Another store holds ``.lock`` (or a crashed one left it behind; a person removes it).
+
+### class `RunInfo(name: str, id: str, stored_at: str, tree: str, system: str, parent: str | None, steps: dict[str, str], rewired: list[str] = <factory>, rewired_removed: list[str] = <factory>, empty_dirs: list[str] = <factory>, note: str = '', source: str = '', host: str = '', git: str | None = None, job_ids: list[str] = <factory>, path: str = '') -> None`
+One run directory, as recorded in its run.json (``runs(root)`` lists them, oldest first).
+
+| field | type | default |
+|---|---|---|
+| `name` | `str` | `required` |
+| `id` | `str` | `required` |
+| `stored_at` | `str` | `required` |
+| `tree` | `str` | `required` |
+| `system` | `str` | `required` |
+| `parent` | `str | None` | `required` |
+| `steps` | `dict` | `required` |
+| `rewired` | `list` | `[]` |
+| `rewired_removed` | `list` | `[]` |
+| `empty_dirs` | `list` | `[]` |
+| `note` | `str` | `''` |
+| `source` | `str` | `''` |
+| `host` | `str` | `''` |
+| `git` | `str | None` | `None` |
+| `job_ids` | `list` | `[]` |
+| `path` | `str` | `''` |
+
+Methods:
+- property `parent_run` - Run directory name of the parent (``None`` for a root run).
+- property `parent_step` - Step directory of the parent this run branches off after.
+- property `date` - ``YYYY-MM-DD`` of the store.
+
+### class `StorePlan(root: pathlib._local.Path, system_dir: pathlib._local.Path, note: str, base: pathlib._local.Path | None)`
+What ``plan_store`` decided to copy. ``preview()`` reads only; ``write()`` copies into the archive.
+
+Methods:
+- `preview(self) -> gmx_harness.archive.StorePreview` - Compare the system directory with the archive. Reads (and hashes) only; nothing is written.
+- `write(self) -> gmx_harness.archive.StorePreview` - Store the run (after a fresh preview under the lock). Raises ``ArchiveConflictError`` on
+
+### class `StorePreview(source: str, root: str, run: str = '', parent: str | None = None, inherited: list[str] = <factory>, steps: dict[str, str] = <factory>, rewired: list[str] = <factory>, rewired_removed: list[str] = <factory>, system_files: list[str] = <factory>, tree_files: list[str] = <factory>, files: int = 0, bytes: int = 0, already: str | None = None, conflicts: list[str] = <factory>, warnings: list[str] = <factory>, written: bool = False) -> None`
+Result of ``StorePlan.preview`` / ``write``. ``ok`` is False when there are ``conflicts``; ``already``
+names the run that holds exactly this state (then nothing is written). ``run`` is the planned run
+directory; its id is final only after ``write`` (``written``).
+
+| field | type | default |
+|---|---|---|
+| `source` | `str` | `required` |
+| `root` | `str` | `required` |
+| `run` | `str` | `''` |
+| `parent` | `str | None` | `None` |
+| `inherited` | `list` | `[]` |
+| `steps` | `dict` | `{}` |
+| `rewired` | `list` | `[]` |
+| `rewired_removed` | `list` | `[]` |
+| `system_files` | `list` | `[]` |
+| `tree_files` | `list` | `[]` |
+| `files` | `int` | `0` |
+| `bytes` | `int` | `0` |
+| `already` | `str | None` | `None` |
+| `conflicts` | `list` | `[]` |
+| `warnings` | `list` | `[]` |
+| `written` | `bool` | `False` |
+
+Methods:
+- property `ok` - True when there are no conflicts (``write`` would go ahead).
+
+### class `ExportPlan(root: pathlib._local.Path, ref: str, dest: pathlib._local.Path)`
+What ``plan_export`` decided to copy out. ``preview()`` reads only; ``write()`` creates the copy.
+
+Methods:
+- `preview(self) -> gmx_harness.archive.ExportPreview` - What would be created. Reads only.
+- `write(self) -> gmx_harness.archive.ExportPreview` - Create ``DEST/<tree>/<system>`` (via a temporary sibling directory, renamed at the end) and the
+
+### class `ExportPreview(run: str, step: str | None, dest: str, steps: list[str] = <factory>, files: int = 0, bytes: int = 0, tree_files: list[str] = <factory>, tree_unchanged: list[str] = <factory>, excluded: list[str] = <factory>, conflicts: list[str] = <factory>, written: bool = False) -> None`
+Result of ``ExportPlan.preview`` / ``write``: ``dest`` (``DEST/<tree>/<system>``) gets ``files``;
+``tree_files`` go to ``DEST/<tree>/`` (``tree_unchanged`` are there already with the same content);
+``excluded`` are left out of a ``RUN/STEP`` export. ``ok`` is False when there are ``conflicts``.
+
+| field | type | default |
+|---|---|---|
+| `run` | `str` | `required` |
+| `step` | `str | None` | `required` |
+| `dest` | `str` | `required` |
+| `steps` | `list` | `[]` |
+| `files` | `int` | `0` |
+| `bytes` | `int` | `0` |
+| `tree_files` | `list` | `[]` |
+| `tree_unchanged` | `list` | `[]` |
+| `excluded` | `list` | `[]` |
+| `conflicts` | `list` | `[]` |
+| `written` | `bool` | `False` |
+
+Methods:
+- property `ok` - True when there are no conflicts (``write`` would go ahead).
+
+### class `VerifyReport(root: str, runs: list[str] = <factory>, files: int = 0, modified: list[str] = <factory>, missing: list[str] = <factory>, extra: list[str] = <factory>, problems: list[str] = <factory>, warnings: list[str] = <factory>) -> None`
+Result of ``verify``: files whose hash differs (``modified``), listed but absent (``missing``),
+present but not listed (``extra``), and broken records (``problems``: unreadable run.json or
+SHA256SUMS, missing parent, unknown entries). ``warnings`` (left-over ``.incoming-*``, ``.lock``)
+do not make ``ok`` False.
+
+| field | type | default |
+|---|---|---|
+| `root` | `str` | `required` |
+| `runs` | `list` | `[]` |
+| `files` | `int` | `0` |
+| `modified` | `list` | `[]` |
+| `missing` | `list` | `[]` |
+| `extra` | `list` | `[]` |
+| `problems` | `list` | `[]` |
+| `warnings` | `list` | `[]` |
+
+Methods:
+- property `ok` - True when nothing is modified, missing or extra and every record is readable.
+
+### `plan_store(root: str | os.PathLike[str], system_dir: str | os.PathLike[str], *, note: str = '', base: str | os.PathLike[str] | None = None) -> gmx_harness.archive.StorePlan`
+Plan storing one system directory (``<tree>/<system>``, holding ``<i>_<name>`` step directories)
+into the archive at ``root`` (created on write). ``note`` goes into run.json. ``base`` (the
+workspace root) resolves relative paths and adds its ``calc*`` trees to the places the root must
+not be in. Nothing is read until ``preview()``; ``write()`` copies.
+
+### `plan_export(root: str | os.PathLike[str], ref: str, dest: str | os.PathLike[str], *, base: str | os.PathLike[str] | None = None) -> gmx_harness.archive.ExportPlan`
+Plan rebuilding ``DEST/<tree>/<system>/`` from a run: ``ref`` is ``RUN`` (directory name, id
+``YYYYMMDD-NNN`` or a unique prefix) or ``RUN/STEP`` (only up to that step, for starting a branch;
+checks.json, postcheck.json, preflight files and job output are then left out, and
+``.gmx_harness_manifest.json`` is kept as stored even if it lists later steps: the next plan
+rewrites it). Raises ``ArchiveError`` for an unknown run or step. ``base`` resolves relative paths.
+
+### `runs(root: str | os.PathLike[str]) -> list[gmx_harness.archive.RunInfo]`
+Every run in the archive, oldest first (unreadable run directories are left out; ``verify`` names them).
+
+### `tree(root: str | os.PathLike[str]) -> str`
+The lineage of every run as indented text (roots, then the runs branching off each step).
+
+### `verify(root: str | os.PathLike[str], run: str | None = None) -> gmx_harness.archive.VerifyReport`
+Re-hash every file of every run (or of ``run``) and compare with SHA256SUMS. Reads only.
+
+### `main(argv: list[str], *, root: str | os.PathLike[str] | None = None, base: str | os.PathLike[str] | None = None, trees: collections.abc.Sequence[str] = ()) -> int`
+    Command line: ``[--root R] [status | tree | verify [RUN] | store DIR... [--all] [--note T] [--write]
+    | export RUN[/STEP] DEST [--write]]`` (default ``status``). ``root`` / ``base`` / ``trees`` are the
+    defaults a workspace script passes (``--root``, ``--base``, ``--tree`` override them); relative
+    paths resolve against ``base`` (else the current directory). ``status`` prints the tree and, for
+    every system of ``trees``, "not archived", "archived as RUN" or "changed since RUN" (fast: a file with
+the size and mtime of an archived copy counts as unchanged; ``store`` hashes what it compares). Without
+    ``--write`` store and export only preview. Returns 0, or 1 on conflicts / verify failures / errors.
+    
+
 ## gmx_harness.relax
 
 ### `relax(gro_path: str, top_path: str, out_dir: str, include_dir: str | None = None, fixed_atom_k: openmm.unit.quantity.Quantity = 1000000.0 kJ/(nm**2 mol)) -> str`
