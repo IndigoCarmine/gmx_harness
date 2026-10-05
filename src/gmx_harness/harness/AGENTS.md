@@ -19,12 +19,14 @@ Agents working on it follow these rules.
    It only overwrites files that gmx_harness generated and that nobody has edited since.
 5. Do not hand-edit generated `.sh` files. If a change is needed, change the step parameters and regenerate.
 6. **Design checks are not optional.** `build_plan` runs `gmx_harness.checks` (codes such as `L003`, `P002`, `L004`);
-   an error makes `preview().ok` False. Fix the design. A waiver (`waive={"CODE": "reason"}`, or a script's `WAIVE`)
-   is the human's decision: explain the issue, ask, and write their reason. Never add or widen a waiver on your own,
-   and never turn checks off (`checks=False`).
+   an error makes `preview().ok` False. Fix the design. A waiver (`waive={...}`, or a script's `WAIVE`) is the human's
+   decision: explain the issue, ask, and write their reason. `{"CODE@pattern": "reason"}` waives only the issues
+   whose place (the `where` printed after the code: file, step or variant; fnmatch pattern) matches, e.g.
+   `{"S004@fiber_rot_+10": "..."}`; `{"CODE": "reason"}` waives every issue of that code. Prefer the place form.
+   Never add or widen a waiver on your own, and never turn checks off (`checks=False`).
 7. **Do not edit generated files or check records** (`calc*/`, `resource/{gro,top,fixed_gro,preco,rosette,sp,sp_relaxed,top_fixed}/`,
-   `*.facts.json`, `checks.json`, `postcheck.json`, `preflight.ok`, `.gmx_harness_manifest.json`). Rerun the stage script
-   that makes them.
+   `*.facts.json`, `checks.json`, `preflight_checks.json`, `postcheck.json`, `preflight.ok`, `.gmx_harness_manifest.json`).
+   Rerun the stage script that makes them.
 
 ## Workflow
 

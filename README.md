@@ -139,7 +139,21 @@ plan = build_plan(steps, "start.gro", "work", extra_inputs=["topo.top"],
                   waive={"L004": "grompp warning about ... is expected here"})
 ```
 
-A waiver needs a known code and a non-empty reason. `expand_template` checks an expanded PLUMED template
+A waiver is `{"CODE": "reason"}` for every issue of that code, or `{"CODE@pattern": "reason"}` for only the issues
+whose place (`where`, printed after the code: a step directory, file or variant) matches the fnmatch pattern
+(case-sensitive, `\` read as `/`; `<file>:<line>` of the PLUMED checks also matches as `<file>`):
+
+```python
+waive={"L004@1_em": "grompp warning about ... is expected in this step only",
+       "P007@6_md_metad/plumed.dat": "..."}
+```
+
+A waiver needs a known code, a non-empty pattern after `@` and a non-empty reason; one that matches no issue is
+reported as `W001` (warning). `Report.enforce(waive, out_dir=...)` writes `checks.json` with the issues, the
+waivers, which issue each waiver covered (`waived_issues`) and the unused ones (`unused_waivers`).
+`check_box(gro, min_edge, periodic_axes="z", min_periodic_edge=...)` (S004) holds the axes along which an assembly is
+continuous with its own image to the minimum-image length only (a triclinic box is judged by its widths,
+`box_heights`). `expand_template` checks an expanded PLUMED template
 (including defines the template ignores), `check_tree` reads logs and COLVAR after a run, and
 `require_preflight=True` makes run.sh refuse to start until `preflight.ok` (written by the workspace's own
 preflight script after running grompp/plumed) exists and still matches. All codes: `gmx_harness.checks.CODES`

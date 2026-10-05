@@ -26,7 +26,8 @@ Quick start::
 
 Design checks (``gmx_harness.checks``): ``build_plan`` checks the planned pipeline, and the
 stage scripts of a workspace hand values on with ``record_facts`` / ``expect``; errors
-stop the script unless waived per code with a reason (``report.enforce(WAIVE)``).
+stop the script unless waived with a reason, per code or per code and place
+(``report.enforce(WAIVE)``, ``WAIVE = {"S004@*fiber*": "why"}``).
 
 Not imported here: ``gmx_harness.relax`` (OpenMM soft-core pre-relaxation; heavy import)
 and ``gmx_harness.analysis`` (MDAnalysis trajectory analysis).
@@ -324,7 +325,10 @@ Args:
         and ``*.itp``); add ``"*.ndx"`` to pass an index file down the whole pipeline.
     checks: run the design checks (``gmx_harness.checks.check_plan``); their errors make
         ``preview().ok`` False and ``write()`` refuse, unless listed in ``waive``.
-    waive: ``{"CODE": "reason"}`` for check errors that are accepted on purpose.
+    waive: ``{"CODE@pattern": "reason"}`` (only the issues whose ``where``, the step directory
+        or file such as ``1_em`` / ``6_md/plumed.dat``, matches the fnmatch pattern) or
+        ``{"CODE": "reason"}`` (every issue of that code) for check errors that are accepted
+        on purpose.
     require_preflight: the generated run.sh files refuse to start unless ``preflight.ok``
         (``sha256sum`` lines of the planned files, written by the workspace's preflight
         run of grompp/plumed) exists next to the top-level run.sh and still matches.
@@ -481,8 +485,13 @@ Methods:
 - property `symbol` - 
 - classmethod `from_gro_line(cls, line: str) -> 'GroAtom'` - 
 
-### class `GroFile(title: str, atoms: list[gmx_harness.io.gro.GroAtom], box_x: float, box_y: float, box_z: float, box_angle_x: float = 90, box_angle_y: float = 90, box_angle_z: float = 90) -> None`
-A .gro structure: title, atoms and a rectangular box (nm).
+### class `GroFile(title: str, atoms: list[gmx_harness.io.gro.GroAtom], box_x: float, box_y: float, box_z: float, box_angle_x: float = 90, box_angle_y: float = 90, box_angle_z: float = 90, box_triclinic: tuple[float, float, float, float, float, float] | None = None) -> None`
+A .gro structure: title, atoms and the box (nm).
+
+``box_x/y/z`` are the diagonal of the box (the first three numbers of the box line).
+A triclinic box line has six more numbers, the off-diagonal components
+``v1(y) v1(z) v2(x) v2(z) v3(x) v3(y)``; they are kept in ``box_triclinic`` (None for a
+rectangular box) and written back. ``box_vectors`` gives the three box vectors.
 
 | field | type | default |
 |---|---|---|
@@ -494,11 +503,13 @@ A .gro structure: title, atoms and a rectangular box (nm).
 | `box_angle_x` | `float` | `90` |
 | `box_angle_y` | `float` | `90` |
 | `box_angle_z` | `float` | `90` |
+| `box_triclinic` | `tuple[float, float, float, float, float, float] | None` | `None` |
 
 Methods:
 - `find_atom(self, index: int) -> list[gmx_harness.io.gro.GroAtom]` - 
 - `get_child(self, index: int) -> gmx_harness.io.gro.GroAtom` - 
 - `get_children(self) -> list[gmx_harness.io.gro.GroAtom]` - 
+- property `box_vectors` - The box vectors v1, v2, v3 as the rows of a 3x3 array (nm).
 - `generate_gro_text(self) -> list[str]` - 
 - classmethod `from_gro_text(cls, lines: list[str]) -> 'GroFile'` - 
 - classmethod `from_gro_file(cls, file_path: str) -> 'GroFile'` - 
@@ -636,7 +647,7 @@ usable as ``{name(...)}`` / ``@name(...)`` (``sel`` and ``join`` are always ther
 ### `preprocess_file(path: str | os.PathLike[str], layout: gmx_harness.plumed.Layout, defines: dict[str, typing.Any] | None = None, helpers: dict[str, collections.abc.Callable[..., typing.Any]] | None = None) -> str`
 ``preprocess`` a template file; ``#include`` is resolved relative to (and confined to) its directory.
 
-### `CODES` = `{'F001': 'a value this script assumes differs from the value the producing script recorded', 'F002': 'a value this script assumes was never recorded upstream', 'F003': 'an input changed after the facts of a file were recorded (stale result)', 'F004': 'the file has no facts (it was not made by a stage script that records them)', 'F005': 'the file changed after its facts were recorded (edited by hand?)', 'S001': 'gro atom count differs from the molecules of the topology', 'S002': 'atom count is not a whole number of molecules', 'S003': '[ molecules ] has several molecule types where one was expected', 'S004': 'a box edge is shorter than the minimum', 'S005': 'a periodic fiber does not close on its image (ndisk*rot not a multiple of 360/nros)', 'S006': 'a bond atom number is outside the monomer (or monomer pair)', 'S007': 'a built bond length is outside the expected range', 'S008': 'atoms of different molecules are closer than the threshold', 'S009': 'atom names/order of the system differ from the labeled monomer', 'S010': 'an index group is empty or refers to atoms outside the structure', 'S011': "a molecule's atom count could not be determined from the topology", 'P001': 'a PLUMED label is defined twice', 'P002': 'ARG/ATOMS refers to a label that is not defined', 'P003': 'the METAD grid does not match the periodicity of its CV', 'P004': 'METAD SIGMA is small compared with the grid spacing', 'P005': 'a bias acts on a label that is not defined', 'P006': 'the n-fold symmetry in the CV (sin/cos/atan2) differs from nros', 'P007': 'a COM/CENTER uses a single atom, or a bias acts on raw single atoms', 'P008': 'an atom index exceeds the number of atoms of the system', 'P009': 'a define passed from Python is not used by the template', 'P010': 'PLUMED UNITS missing or not nm / kJ/mol', 'L001': 'PLUMED PACE/PRINT stride does not divide nsteps/nstout', 'L002': 'a step needs an index file that is not planned', 'L003': "the first step's input.gro does not match its topo.top", 'L004': 'maxwarn > 0 (grompp warnings are ignored)', 'L005': 'strict_mdp=False (mdp validation errors are ignored)', 'L006': 'a raw shell step (unchecked command) is in the pipeline', 'G001': "grompp failed in the preflight (with the step's maxwarn)", 'G002': 'plumed driver failed (or wrote no COLVAR row) on the step-0 structure', 'G003': 'a CV on the step-0 (relaxed) structure differs from the value it was built with', 'G004': 'the step-0 structure CV check could not run (rot/nros not recorded upstream)', 'R001': 'NaN in COLVAR or the log', 'R002': 'LINCS warnings in the log', 'R003': 'GPU error (Xid / CUDA error) in the job output', 'R004': 'the biased CV barely moves (stalled)', 'R005': 'GROMACS fatal error in the log', 'R006': "a step started but did not finish (no output.gro, no 'Finished mdrun' in the log)", 'W001': 'a waiver was given for a code that did not occur'}`
+### `CODES` = `{'F001': 'a value this script assumes differs from the value the producing script recorded', 'F002': 'a value this script assumes was never recorded upstream', 'F003': 'an input changed after the facts of a file were recorded (stale result)', 'F004': 'the file has no facts (it was not made by a stage script that records them)', 'F005': 'the file changed after its facts were recorded (edited by hand?)', 'S001': 'gro atom count differs from the molecules of the topology', 'S002': 'atom count is not a whole number of molecules', 'S003': '[ molecules ] has several molecule types where one was expected', 'S004': 'a box edge is shorter than the minimum', 'S005': 'a periodic fiber does not close on its image (ndisk*rot not a multiple of 360/nros)', 'S006': 'a bond atom number is outside the monomer (or monomer pair)', 'S007': 'a built bond length is outside the expected range', 'S008': 'atoms of different molecules are closer than the threshold', 'S009': 'atom names/order of the system differ from the labeled monomer', 'S010': 'an index group is empty or refers to atoms outside the structure', 'S011': "a molecule's atom count could not be determined from the topology", 'P001': 'a PLUMED label is defined twice', 'P002': 'ARG/ATOMS refers to a label that is not defined', 'P003': 'the METAD grid does not match the periodicity of its CV', 'P004': 'METAD SIGMA is small compared with the grid spacing', 'P005': 'a bias acts on a label that is not defined', 'P006': 'the n-fold symmetry in the CV (sin/cos/atan2) differs from nros', 'P007': 'a COM/CENTER uses a single atom, or a bias acts on raw single atoms', 'P008': 'an atom index exceeds the number of atoms of the system', 'P009': 'a define passed from Python is not used by the template', 'P010': 'PLUMED UNITS missing or not nm / kJ/mol', 'L001': 'PLUMED PACE/PRINT stride does not divide nsteps/nstout', 'L002': 'a step needs an index file that is not planned', 'L003': "the first step's input.gro does not match its topo.top", 'L004': 'maxwarn > 0 (grompp warnings are ignored)', 'L005': 'strict_mdp=False (mdp validation errors are ignored)', 'L006': 'a raw shell step (unchecked command) is in the pipeline', 'G001': "grompp failed in the preflight dry run (with the step's maxwarn)", 'G002': 'plumed driver failed (or wrote no COLVAR row) on the structure the step receives in the preflight dry run', 'G003': 'a CV on the structure a step receives in the preflight dry run differs from the value it was built with', 'G004': 'the preflight CV check could not run (rot/nros not recorded upstream)', 'G005': 'a step without setting.mdp (solvation etc.) or its hand-over (copy.sh) failed, or would run mdrun, in the preflight dry run', 'R001': 'NaN in COLVAR or the log', 'R002': 'LINCS warnings in the log', 'R003': 'GPU error (Xid / CUDA error) in the job output', 'R004': 'the biased CV barely moves (stalled)', 'R005': 'GROMACS fatal error in the log', 'R006': "a step started but did not finish (no output.gro, no 'Finished mdrun' in the log)", 'W001': "a waiver matches no issue (its code did not occur, or not at the waiver's place)"}`
 
 ### class `HarnessCheckError(report: 'Report', waive: collections.abc.Mapping[str, str])`  (bases: RuntimeError)
 A check found errors that are not waived (``report`` lists everything).
@@ -656,8 +667,9 @@ Methods:
 - `extend(self, other: 'Report | Iterable[Issue]') -> 'Report'` - Add issues (an identical issue already present is not repeated).
 - `errors(self, waive: collections.abc.Mapping[str, str] | None = None) -> list[gmx_harness.checks.report.Issue]` - Errors that are not waived (``waive`` is checked with ``validate_waivers``).
 - `ok(self, waive: collections.abc.Mapping[str, str] | None = None) -> bool` - 
+- `unused_waivers(self, waive: collections.abc.Mapping[str, str] | None = None) -> list[str]` - W001: the waiver keys that match no issue of this report (of any level).
 - `format(self, waive: collections.abc.Mapping[str, str] | None = None) -> str` - 
-- `to_dict(self, waive: collections.abc.Mapping[str, str] | None = None) -> dict[str, object]` - 
+- `to_dict(self, waive: collections.abc.Mapping[str, str] | None = None) -> dict[str, object]` - The ``checks.json`` record: issues, waivers and which issue each waiver covered.
 - `enforce(self, waive: collections.abc.Mapping[str, str] | None = None, *, out_dir: str | os.PathLike[str] | None = None, name: str = 'checks.json', quiet: bool = False) -> 'Report'` - Print the report, write it to ``out_dir/name`` if given, and raise
 
 ### `record_facts(path: str | os.PathLike[str], *, script: str | os.PathLike[str], inputs: collections.abc.Iterable[str | os.PathLike[str]] = (), **facts: Any) -> pathlib._local.Path`
@@ -688,7 +700,9 @@ Design checks: stop a wrong design before anything is computed.
 
 Every check returns a ``Report`` of ``Issue``s with stable codes (``CODES``);
 ``report.enforce(WAIVE)`` raises ``HarnessCheckError`` unless every error is
-waived with a reason, ``WAIVE = {"S004": "box tested in run 123, no self-contact"}``.
+waived with a reason: ``WAIVE = {"S004@*fiber_rot_+10*": "box tested in run 123, no self-contact"}``
+waives S004 only where the issue's ``where`` matches the pattern, ``{"S004": ...}`` every S004
+(see ``gmx_harness.checks.report``).
 
 Layers (all pure Python; nothing here runs GROMACS or PLUMED):
 
@@ -700,7 +714,7 @@ Layers (all pure Python; nothing here runs GROMACS or PLUMED):
 
 ``python -m gmx_harness.checks <dir>`` lists the facts files below ``dir``.
 
-### `CODES` = `{'F001': 'a value this script assumes differs from the value the producing script recorded', 'F002': 'a value this script assumes was never recorded upstream', 'F003': 'an input changed after the facts of a file were recorded (stale result)', 'F004': 'the file has no facts (it was not made by a stage script that records them)', 'F005': 'the file changed after its facts were recorded (edited by hand?)', 'S001': 'gro atom count differs from the molecules of the topology', 'S002': 'atom count is not a whole number of molecules', 'S003': '[ molecules ] has several molecule types where one was expected', 'S004': 'a box edge is shorter than the minimum', 'S005': 'a periodic fiber does not close on its image (ndisk*rot not a multiple of 360/nros)', 'S006': 'a bond atom number is outside the monomer (or monomer pair)', 'S007': 'a built bond length is outside the expected range', 'S008': 'atoms of different molecules are closer than the threshold', 'S009': 'atom names/order of the system differ from the labeled monomer', 'S010': 'an index group is empty or refers to atoms outside the structure', 'S011': "a molecule's atom count could not be determined from the topology", 'P001': 'a PLUMED label is defined twice', 'P002': 'ARG/ATOMS refers to a label that is not defined', 'P003': 'the METAD grid does not match the periodicity of its CV', 'P004': 'METAD SIGMA is small compared with the grid spacing', 'P005': 'a bias acts on a label that is not defined', 'P006': 'the n-fold symmetry in the CV (sin/cos/atan2) differs from nros', 'P007': 'a COM/CENTER uses a single atom, or a bias acts on raw single atoms', 'P008': 'an atom index exceeds the number of atoms of the system', 'P009': 'a define passed from Python is not used by the template', 'P010': 'PLUMED UNITS missing or not nm / kJ/mol', 'L001': 'PLUMED PACE/PRINT stride does not divide nsteps/nstout', 'L002': 'a step needs an index file that is not planned', 'L003': "the first step's input.gro does not match its topo.top", 'L004': 'maxwarn > 0 (grompp warnings are ignored)', 'L005': 'strict_mdp=False (mdp validation errors are ignored)', 'L006': 'a raw shell step (unchecked command) is in the pipeline', 'G001': "grompp failed in the preflight (with the step's maxwarn)", 'G002': 'plumed driver failed (or wrote no COLVAR row) on the step-0 structure', 'G003': 'a CV on the step-0 (relaxed) structure differs from the value it was built with', 'G004': 'the step-0 structure CV check could not run (rot/nros not recorded upstream)', 'R001': 'NaN in COLVAR or the log', 'R002': 'LINCS warnings in the log', 'R003': 'GPU error (Xid / CUDA error) in the job output', 'R004': 'the biased CV barely moves (stalled)', 'R005': 'GROMACS fatal error in the log', 'R006': "a step started but did not finish (no output.gro, no 'Finished mdrun' in the log)", 'W001': 'a waiver was given for a code that did not occur'}`
+### `CODES` = `{'F001': 'a value this script assumes differs from the value the producing script recorded', 'F002': 'a value this script assumes was never recorded upstream', 'F003': 'an input changed after the facts of a file were recorded (stale result)', 'F004': 'the file has no facts (it was not made by a stage script that records them)', 'F005': 'the file changed after its facts were recorded (edited by hand?)', 'S001': 'gro atom count differs from the molecules of the topology', 'S002': 'atom count is not a whole number of molecules', 'S003': '[ molecules ] has several molecule types where one was expected', 'S004': 'a box edge is shorter than the minimum', 'S005': 'a periodic fiber does not close on its image (ndisk*rot not a multiple of 360/nros)', 'S006': 'a bond atom number is outside the monomer (or monomer pair)', 'S007': 'a built bond length is outside the expected range', 'S008': 'atoms of different molecules are closer than the threshold', 'S009': 'atom names/order of the system differ from the labeled monomer', 'S010': 'an index group is empty or refers to atoms outside the structure', 'S011': "a molecule's atom count could not be determined from the topology", 'P001': 'a PLUMED label is defined twice', 'P002': 'ARG/ATOMS refers to a label that is not defined', 'P003': 'the METAD grid does not match the periodicity of its CV', 'P004': 'METAD SIGMA is small compared with the grid spacing', 'P005': 'a bias acts on a label that is not defined', 'P006': 'the n-fold symmetry in the CV (sin/cos/atan2) differs from nros', 'P007': 'a COM/CENTER uses a single atom, or a bias acts on raw single atoms', 'P008': 'an atom index exceeds the number of atoms of the system', 'P009': 'a define passed from Python is not used by the template', 'P010': 'PLUMED UNITS missing or not nm / kJ/mol', 'L001': 'PLUMED PACE/PRINT stride does not divide nsteps/nstout', 'L002': 'a step needs an index file that is not planned', 'L003': "the first step's input.gro does not match its topo.top", 'L004': 'maxwarn > 0 (grompp warnings are ignored)', 'L005': 'strict_mdp=False (mdp validation errors are ignored)', 'L006': 'a raw shell step (unchecked command) is in the pipeline', 'G001': "grompp failed in the preflight dry run (with the step's maxwarn)", 'G002': 'plumed driver failed (or wrote no COLVAR row) on the structure the step receives in the preflight dry run', 'G003': 'a CV on the structure a step receives in the preflight dry run differs from the value it was built with', 'G004': 'the preflight CV check could not run (rot/nros not recorded upstream)', 'G005': 'a step without setting.mdp (solvation etc.) or its hand-over (copy.sh) failed, or would run mdrun, in the preflight dry run', 'R001': 'NaN in COLVAR or the log', 'R002': 'LINCS warnings in the log', 'R003': 'GPU error (Xid / CUDA error) in the job output', 'R004': 'the biased CV barely moves (stalled)', 'R005': 'GROMACS fatal error in the log', 'R006': "a step started but did not finish (no output.gro, no 'Finished mdrun' in the log)", 'W001': "a waiver matches no issue (its code did not occur, or not at the waiver's place)"}`
 
 ### class `HarnessCheckError(report: 'Report', waive: collections.abc.Mapping[str, str])`  (bases: RuntimeError)
 A check found errors that are not waived (``report`` lists everything).
@@ -730,12 +744,22 @@ Methods:
 - `extend(self, other: 'Report | Iterable[Issue]') -> 'Report'` - Add issues (an identical issue already present is not repeated).
 - `errors(self, waive: collections.abc.Mapping[str, str] | None = None) -> list[gmx_harness.checks.report.Issue]` - Errors that are not waived (``waive`` is checked with ``validate_waivers``).
 - `ok(self, waive: collections.abc.Mapping[str, str] | None = None) -> bool` - 
+- `unused_waivers(self, waive: collections.abc.Mapping[str, str] | None = None) -> list[str]` - W001: the waiver keys that match no issue of this report (of any level).
 - `format(self, waive: collections.abc.Mapping[str, str] | None = None) -> str` - 
-- `to_dict(self, waive: collections.abc.Mapping[str, str] | None = None) -> dict[str, object]` - 
+- `to_dict(self, waive: collections.abc.Mapping[str, str] | None = None) -> dict[str, object]` - The ``checks.json`` record: issues, waivers and which issue each waiver covered.
 - `enforce(self, waive: collections.abc.Mapping[str, str] | None = None, *, out_dir: str | os.PathLike[str] | None = None, name: str = 'checks.json', quiet: bool = False) -> 'Report'` - Print the report, write it to ``out_dir/name`` if given, and raise
 
 ### `validate_waivers(waive: collections.abc.Mapping[str, str] | None) -> dict[str, str]`
-Known codes with a non-empty reason only.
+Check the waivers and return them as ``{key: reason}`` (keys as given). A key is
+
+- ``"CODE@pattern"``: waives the ``CODE`` issues whose ``where`` matches ``pattern``
+  (``fnmatch``, case-sensitive, ``\`` read as ``/``; a ``where`` ``<file>:<line>`` also
+  matches as ``<file>``). An issue with an empty ``where`` never matches. A waiver for a
+  place is credited before a code-wide one.
+- ``"CODE"``: waives every ``CODE`` issue (code-wide; shown as ``for every CODE``).
+
+``ValueError`` for an unknown code, nothing after ``@``, or an empty reason. A key that
+matches no issue is W001 (``Report.unused_waivers``).
 
 ### `record_facts(path: str | os.PathLike[str], *, script: str | os.PathLike[str], inputs: collections.abc.Iterable[str | os.PathLike[str]] = (), **facts: Any) -> pathlib._local.Path`
 Write ``<path>.facts.json``: ``facts`` (free keys), the producing ``script`` (pass
@@ -765,8 +789,28 @@ S001: gro atoms == topology atoms; S003 (with ``single_type``): only one molecul
 ### `check_whole_molecules(natoms_total: int, natoms_per_mol: int, where: str = '') -> gmx_harness.checks.report.Report`
 S002: ``natoms_total`` is a whole number of ``natoms_per_mol`` molecules.
 
-### `check_box(gro: gmx_harness.io.gro.GroFile, min_edge: float, where: str = '') -> gmx_harness.checks.report.Report`
-S004: every box edge >= ``min_edge`` nm.
+### `check_box(gro: gmx_harness.io.gro.GroFile, min_edge: float, where: str = '', *, periodic_axes: str = '', min_periodic_edge: float | None = None) -> gmx_harness.checks.report.Report`
+S004: the box is large enough for the assembly not to meet its own periodic image.
+
+Every axis needs at least ``min_edge`` nm (the assembly's extent plus about twice the
+cut-off, so it does not interact with its image), except the ``periodic_axes`` (any of
+``"xyz"``, e.g. ``"z"``): along those the molecules are bonded/continuous with their own
+image on purpose (a fiber closed on itself along z), the assembly's extent does not
+matter, and the box only has to obey the minimum-image convention, i.e. be at least
+``min_periodic_edge`` nm. Choose that from the run's mdp: twice the longest cut-off
+(``rlist``/``rcoulomb``/``rvdw``) plus a margin for the Verlet buffer and for the box
+shrinking under pressure coupling. There is no default because the cut-off belongs to
+the caller's mdp settings; ``periodic_axes`` without ``min_periodic_edge`` is a ValueError.
+
+For a triclinic box (off-diagonal components in the gro box line) the widths
+perpendicular to each pair of box vectors (``box_heights``) are compared instead of
+the diagonal; x, y, z then mean the directions of v1, v2, v3.
+
+### `box_heights(gro: gmx_harness.io.gro.GroFile) -> tuple[float, float, float]`
+The box's width along each lattice direction (nm): the distance between the two faces
+spanned by the other two box vectors, ``volume / |v_j x v_k|``. That is the shortest
+distance from an atom to its own periodic image across those faces. For a rectangular
+box it is just ``(box_x, box_y, box_z)``; for a triclinic one it is shorter than the edges.
 
 ### `check_periodic_twist(ndisk: int, rot: float, nros: int, where: str = '', tol: float = 1e-06) -> gmx_harness.checks.report.Report`
 S005: a fiber closed on its periodic image needs ndisk*rot to be a multiple of 360/nros.
@@ -784,7 +828,7 @@ S008 (warn): atoms of different molecules closer than ``threshold`` nm (no PBC; 
 S009: atoms offset.. of the system repeat the labeled monomer's atom names ``nmol`` times.
 
 ### `check_ndx(ndx: str | os.PathLike[str], natoms: int, required: collections.abc.Iterable[str] = (), where: str = '') -> gmx_harness.checks.report.Report`
-S010: every group non-empty and within 1..natoms; ``required`` groups exist.
+S010: every group non-empty and within 1..natoms; ``required`` groups exist (``where``: the ndx file name).
 
 ### `topology_molecules(text: str) -> list[tuple[str, int]]`
 ``[ molecules ]`` entries (name, count) in order.

@@ -117,13 +117,62 @@ def check_whole_molecules(natoms_total: int, natoms_per_mol: int, where: str = "
     return rep
 
 
-def check_box(gro: GroFile, min_edge: float, where: str = "") -> Report:
-    """S004: every box edge >= ``min_edge`` nm."""
+def box_heights(gro: GroFile) -> tuple[float, float, float]:
+    """
+    The box's width along each lattice direction (nm): the distance between the two faces
+    spanned by the other two box vectors, ``volume / |v_j x v_k|``. That is the shortest
+    distance from an atom to its own periodic image across those faces. For a rectangular
+    box it is just ``(box_x, box_y, box_z)``; for a triclinic one it is shorter than the edges.
+    """
+    if gro.box_triclinic is None or not any(gro.box_triclinic):
+        return gro.box_x, gro.box_y, gro.box_z
+    v = gro.box_vectors
+    volume = abs(float(np.linalg.det(v)))
+    out = []
+    for i in range(3):
+        area = float(np.linalg.norm(np.cross(v[(i + 1) % 3], v[(i + 2) % 3])))
+        out.append(volume / area if area > 0 else 0.0)
+    return out[0], out[1], out[2]
+
+
+def check_box(gro: GroFile, min_edge: float, where: str = "", *, periodic_axes: str = "",
+              min_periodic_edge: float | None = None) -> Report:
+    """
+    S004: the box is large enough for the assembly not to meet its own periodic image.
+
+    Every axis needs at least ``min_edge`` nm (the assembly's extent plus about twice the
+    cut-off, so it does not interact with its image), except the ``periodic_axes`` (any of
+    ``"xyz"``, e.g. ``"z"``): along those the molecules are bonded/continuous with their own
+    image on purpose (a fiber closed on itself along z), the assembly's extent does not
+    matter, and the box only has to obey the minimum-image convention, i.e. be at least
+    ``min_periodic_edge`` nm. Choose that from the run's mdp: twice the longest cut-off
+    (``rlist``/``rcoulomb``/``rvdw``) plus a margin for the Verlet buffer and for the box
+    shrinking under pressure coupling. There is no default because the cut-off belongs to
+    the caller's mdp settings; ``periodic_axes`` without ``min_periodic_edge`` is a ValueError.
+
+    For a triclinic box (off-diagonal components in the gro box line) the widths
+    perpendicular to each pair of box vectors (``box_heights``) are compared instead of
+    the diagonal; x, y, z then mean the directions of v1, v2, v3.
+    """
+    axes = periodic_axes.lower()
+    if set(axes) - set("xyz") or len(set(axes)) != len(axes):
+        raise ValueError(f"periodic_axes={periodic_axes!r}: give distinct axes out of 'xyz', e.g. 'z'")
+    if axes and min_periodic_edge is None:
+        raise ValueError("periodic_axes needs min_periodic_edge (about 2 x the cut-off of the run, plus a margin)")
     rep = Report()
-    small = [f"{ax}={e:.2f}" for ax, e in zip("xyz", (gro.box_x, gro.box_y, gro.box_z)) if e < min_edge]
+    heights = box_heights(gro)
+    triclinic = gro.box_triclinic is not None and any(gro.box_triclinic)
+    note = " (widths of the triclinic box perpendicular to the other two box vectors)" if triclinic else ""
+    small = [f"{ax}={e:.2f}" for ax, e in zip("xyz", heights) if ax not in axes and e < min_edge]
     if small:
         rep.error("S004", f"box edge(s) {', '.join(small)} nm < {min_edge} nm: the assembly may see its periodic "
-                          "image within the cut-off", where)
+                          f"image within the cut-off{note}", where)
+    if axes and min_periodic_edge is not None:
+        short = [f"{ax}={e:.2f}" for ax, e in zip("xyz", heights) if ax in axes and e < min_periodic_edge]
+        if short:
+            rep.error("S004", f"periodic axis {', '.join(short)} nm < {min_periodic_edge} nm: the assembly is "
+                              "continuous with its own image along this axis, and a box this short puts an atom's "
+                              f"image within twice the cut-off (minimum-image convention){note}", where)
     return rep
 
 
@@ -236,8 +285,9 @@ def parse_ndx(text: str) -> dict[str, list[int]]:
 
 
 def check_ndx(ndx: str | os.PathLike[str], natoms: int, required: Iterable[str] = (), where: str = "") -> Report:
-    """S010: every group non-empty and within 1..natoms; ``required`` groups exist."""
+    """S010: every group non-empty and within 1..natoms; ``required`` groups exist (``where``: the ndx file name)."""
     rep = Report()
+    where = where or Path(ndx).name
     groups = parse_ndx(Path(ndx).read_text(encoding="utf-8"))
     for name in required:
         if name not in groups:

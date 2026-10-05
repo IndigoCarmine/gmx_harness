@@ -19,7 +19,8 @@ Quick start::
 
 Design checks (``gmx_harness.checks``): ``build_plan`` checks the planned pipeline, and the
 stage scripts of a workspace hand values on with ``record_facts`` / ``expect``; errors
-stop the script unless waived per code with a reason (``report.enforce(WAIVE)``).
+stop the script unless waived with a reason, per code or per code and place
+(``report.enforce(WAIVE)``, ``WAIVE = {"S004@*fiber*": "why"}``).
 
 Not imported here: ``gmx_harness.relax`` (OpenMM soft-core pre-relaxation; heavy import)
 and ``gmx_harness.analysis`` (MDAnalysis trajectory analysis).

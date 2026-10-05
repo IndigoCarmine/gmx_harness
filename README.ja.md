@@ -134,7 +134,21 @@ plan = build_plan(steps, "start.gro", "work", extra_inputs=["topo.top"],
                   waive={"L004": "grompp warning about ... is expected here"})
 ```
 
-waiver には既知のコードと空でない理由が必要です。`expand_template` は展開後の PLUMED テンプレートを調べ
+waiver は、そのコードのすべての問題を通す `{"CODE": "理由"}` か、場所（コードの後ろに表示される `where`：ステップの
+ディレクトリ、ファイル、バリアントなど）が fnmatch のパターンに一致する問題だけを通す `{"CODE@パターン": "理由"}` です
+（大文字小文字を区別し、`\` は `/` と読みます。PLUMED チェックの `<ファイル>:<行>` は `<ファイル>` にも一致します）:
+
+```python
+waive={"L004@1_em": "grompp warning about ... is expected in this step only",
+       "P007@6_md_metad/plumed.dat": "..."}
+```
+
+waiver には既知のコード、`@` の後の空でないパターン、空でない理由が必要です。どの問題にも一致しない waiver は
+`W001`（警告）として報告されます。`Report.enforce(waive, out_dir=...)` は、問題、waiver、各 waiver がどの問題を通したか
+（`waived_issues`）、使われなかった waiver（`unused_waivers`）を `checks.json` に書きます。
+`check_box(gro, min_edge, periodic_axes="z", min_periodic_edge=...)`（S004）は、集合体が自分の周期像とつながっている軸には
+最小像の長さだけを求めます（三斜晶の箱は各格子ベクトルの垂直幅 `box_heights` で判定）。
+`expand_template` は展開後の PLUMED テンプレートを調べ
 （テンプレートが使わない define も報告）、`check_tree` は実行後のログと COLVAR を読みます。
 `require_preflight=True` にすると、`preflight.ok`（ワークスペース側の preflight スクリプトが grompp/plumed を実行して書く）が
 存在して内容が一致するまで run.sh は起動を拒否します。コードの一覧: `gmx_harness.checks.CODES`

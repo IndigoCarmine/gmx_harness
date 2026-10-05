@@ -332,7 +332,10 @@ def build_plan(
             and ``*.itp``); add ``"*.ndx"`` to pass an index file down the whole pipeline.
         checks: run the design checks (``gmx_harness.checks.check_plan``); their errors make
             ``preview().ok`` False and ``write()`` refuse, unless listed in ``waive``.
-        waive: ``{"CODE": "reason"}`` for check errors that are accepted on purpose.
+        waive: ``{"CODE@pattern": "reason"}`` (only the issues whose ``where``, the step directory
+            or file such as ``1_em`` / ``6_md/plumed.dat``, matches the fnmatch pattern) or
+            ``{"CODE": "reason"}`` (every issue of that code) for check errors that are accepted
+            on purpose.
         require_preflight: the generated run.sh files refuse to start unless ``preflight.ok``
             (``sha256sum`` lines of the planned files, written by the workspace's preflight
             run of grompp/plumed) exists next to the top-level run.sh and still matches.

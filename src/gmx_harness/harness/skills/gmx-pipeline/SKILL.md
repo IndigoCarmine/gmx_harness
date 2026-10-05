@@ -47,8 +47,11 @@ print(plan.summary())
 print(plan.file("1_nvt/setting.mdp"))   # show the key mdp files to the human
 print(plan.preview())
 ```
-- `print(plan.preview())` also lists the design checks (`checks:`). For an error, fix the design; if the human
-  says the issue is acceptable, pass `waive={"CODE": "their reason"}` (never on your own, never `checks=False`).
+- `print(plan.preview())` also lists the design checks (`checks:`, each as `CODE <where>: message`). For an error,
+  fix the design; if the human says the issue is acceptable, pass `waive={"CODE@<where pattern>": "their reason"}`
+  (only the issues at that place, e.g. `"L004@1_em"`: an fnmatch pattern on the step directory or file printed after
+  the code) or `waive={"CODE": "their reason"}` (every issue of that code). Never on your own, never `checks=False`.
+  A waiver that matches nothing is `W001` (warn). Format and the `where` of each code: gmx-troubleshoot skill.
   Errors (block the write): `L003` input.gro vs topo.top, `L002` a step needs an index file that is not planned,
   `L004` maxwarn > 0, `L005` strict_mdp=False, `L006` raw shell step, `S011` a molecule type of topo.top not found
   locally, most `P0xx` of the PLUMED input. Warnings (shown, do not block): `L001` PLUMED PACE/PRINT strides,
@@ -59,7 +62,9 @@ print(plan.preview())
   (`P009`, typos). `report.enforce(WAIVE)` before using `text`.
 - `require_preflight=True` makes run.sh refuse to start until a human has run the preflight (grompp with each step's
   maxwarn / plumed driver) and it has written `preflight.ok` (sha256sum of the planned files). The library does not
-  write `preflight.ok`; a preflight script of the workspace does. The run.sh files then also need `sha256sum`.
+  write `preflight.ok`; a preflight script of the workspace does (gmx_template: `3md_planning/preflight.py`, a dry
+  run of every step: grompp without mdrun, the solvation steps really run, plumed driver on the structure each step
+  receives). The run.sh files then also need `sha256sum`.
 - If `PlanPreview.conflicts` is not empty, report it and ask the human how to proceed.
   - To add only new steps: `plan.write(OverwritePolicy.SKIP_EXISTING)`
   - To regenerate after changing parameters: `plan.write(OverwritePolicy.REPLACE_GENERATED)`

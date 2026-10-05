@@ -68,7 +68,14 @@ class GroAtom:
 
 @dataclass
 class GroFile:
-    """A .gro structure: title, atoms and a rectangular box (nm)."""
+    """
+    A .gro structure: title, atoms and the box (nm).
+
+    ``box_x/y/z`` are the diagonal of the box (the first three numbers of the box line).
+    A triclinic box line has six more numbers, the off-diagonal components
+    ``v1(y) v1(z) v2(x) v2(z) v3(x) v3(y)``; they are kept in ``box_triclinic`` (None for a
+    rectangular box) and written back. ``box_vectors`` gives the three box vectors.
+    """
 
     title: str
     atoms: list[GroAtom]
@@ -78,6 +85,7 @@ class GroFile:
     box_angle_x: float = 90
     box_angle_y: float = 90
     box_angle_z: float = 90
+    box_triclinic: tuple[float, float, float, float, float, float] | None = None
 
     def __len__(self) -> int:
         return len(self.atoms)
@@ -94,9 +102,17 @@ class GroFile:
     def get_children(self) -> list[GroAtom]:
         return self.atoms
 
+    @property
+    def box_vectors(self) -> npt.NDArray[np.float64]:
+        """The box vectors v1, v2, v3 as the rows of a 3x3 array (nm)."""
+        v1y, v1z, v2x, v2z, v3x, v3y = self.box_triclinic or (0.0,) * 6
+        return np.array([[self.box_x, v1y, v1z], [v2x, self.box_y, v2z], [v3x, v3y, self.box_z]], dtype=float)
+
     def generate_gro_text(self) -> list[str]:
-        return [self.title, f"   {len(self.atoms)}", *(str(a) for a in self.atoms),
-                f"{self.box_x} {self.box_y} {self.box_z}"]
+        box = f"{self.box_x} {self.box_y} {self.box_z}"
+        if self.box_triclinic is not None and any(self.box_triclinic):
+            box += " " + " ".join(str(v) for v in self.box_triclinic)
+        return [self.title, f"   {len(self.atoms)}", *(str(a) for a in self.atoms), box]
 
     @classmethod
     def from_gro_text(cls, lines: list[str]) -> "GroFile":
@@ -109,9 +125,11 @@ class GroFile:
         atom_lines = lines[2:-1]
         if len(atom_lines) != natoms:
             raise ValueError(f"header says {natoms} atoms but {len(atom_lines)} atom lines were found")
-        box = lines[-1].split()
+        box = [float(v) for v in lines[-1].split()[:9]]
+        off = box[3:9]
+        triclinic = (off[0], off[1], off[2], off[3], off[4], off[5]) if len(off) == 6 and any(off) else None
         return cls(lines[0].strip(), [GroAtom.from_gro_line(ln) for ln in atom_lines],
-                   float(box[0]), float(box[1]), float(box[2]))
+                   box[0], box[1], box[2], box_triclinic=triclinic)
 
     @classmethod
     def from_gro_file(cls, file_path: str) -> "GroFile":

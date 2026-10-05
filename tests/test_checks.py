@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from gmx_harness import EM, MD, GroAtom, GroFile, Layout, MDType, MoleculeLabels, build_plan, set_molecule_count
+from gmx_harness.pipeline import Plan
 from gmx_harness.plumed import PreprocessError, preprocess
 from gmx_harness.checks import (
     HarnessCheckError,
@@ -14,6 +15,7 @@ from gmx_harness.checks import (
     Report,
     check_bond_lengths,
     check_bond_pairs,
+    box_heights,
     check_box,
     check_fresh,
     check_labels,
@@ -121,6 +123,85 @@ class TestWaivers(unittest.TestCase):
             data = json.loads(Path(d, "checks.json").read_text(encoding="utf-8"))
             self.assertTrue(data["ok"])
             self.assertEqual(data["waived"], {"S004": "tested"})
+            self.assertEqual([(w["waiver"], w["scope"]) for w in data["waived_issues"]], [("S004", "code")])
+            self.assertEqual(data["unused_waivers"], [])
+
+    @staticmethod
+    def two_boxes() -> Report:
+        rep = Report()
+        rep.error("S004", "small box", "fiber_rot_+10")
+        rep.error("S004", "small box", "finite_rot_+10")
+        rep.error("S005", "no closure", "fiber_rot_+10")
+        return rep
+
+    def test_waiver_at_a_place(self) -> None:
+        rep = self.two_boxes()
+        w = {"S004@fiber_*": "periodic along z by design"}
+        self.assertEqual([(i.code, i.where) for i in rep.errors(w)],     # the same code elsewhere still stops
+                         [("S004", "finite_rot_+10"), ("S005", "fiber_rot_+10")])
+        with self.assertRaises(HarnessCheckError):
+            rep.enforce(w, quiet=True)
+        rep.enforce({**w, "S004@finite_rot_+10": "tested", "S005@*fiber_rot_+10*": "ok"}, quiet=True)
+        self.assertEqual(len(rep.errors({"S004@FIBER_*": "case-sensitive"})), 3)
+        text = rep.format(w)
+        self.assertIn('WAIVED S004 fiber_rot_+10: small box  -- waived by "S004@fiber_*", reason: periodic', text)
+        self.assertIn("ERROR S004 finite_rot_+10: small box", text)
+
+    def test_code_wide_waiver_is_marked(self) -> None:
+        rep = self.two_boxes()
+        self.assertEqual([i.code for i in rep.errors({"S004": "tested"})], ["S005"])     # backward compatible
+        self.assertEqual(rep.format({"S004": "tested"}).count('waived by "S004" (for every S004)'), 2)
+        # a place waiver is credited before a code-wide one
+        d = rep.to_dict({"S004": "tested", "S004@finite*": "finite: tested"})
+        self.assertEqual([(w["waiver"], w["scope"], w["where"]) for w in d["waived_issues"]],
+                         [("S004", "code", "fiber_rot_+10"), ("S004@finite*", "where", "finite_rot_+10")])
+
+    def test_place_waiver_needs_a_place(self) -> None:
+        rep = Report()
+        rep.error("S004", "small box")                                    # no where
+        self.assertEqual(len(rep.errors({"S004@*": "anything"})), 1)
+        self.assertEqual(rep.unused_waivers({"S004@*": "anything"}), ["S004@*"])
+        rep = Report()
+        rep.error("P007", "single atom COM", "6_md/plumed.dat:12")
+        rep.error("P007", "single atom COM", "7_md/plumed.dat:3")
+        self.assertEqual([i.where for i in rep.errors({"P007@6_md/plumed.dat": "x"})], ["7_md/plumed.dat:3"])
+        self.assertEqual(rep.errors({"P007@6_md/plumed.dat:12": "x", "P007@7_md\\plumed.dat": "y"}), [])
+
+    def test_w001_per_key(self) -> None:
+        rep = self.two_boxes()
+        w = {"S004@fiber_*": "a", "S004@bundle_*": "b", "S001": "c", "S011@x": "d"}
+        self.assertEqual(rep.unused_waivers(w), ["S004@bundle_*", "S001", "S011@x"])
+        text = rep.format(w)
+        self.assertIn("WARN  W001 waiver S004@bundle_* matches no issue (S004 occurs at: fiber_rot_+10, "
+                      "finite_rot_+10)", text)
+        self.assertIn("WARN  W001 waiver S001 is not needed (no S001 issue)", text)
+        self.assertIn("WARN  W001 waiver S011@x is not needed (no S011 issue)", text)
+        self.assertEqual(rep.to_dict(w)["unused_waivers"], ["S004@bundle_*", "S001", "S011@x"])
+
+    def test_invalid_place_waivers(self) -> None:
+        rep = self.two_boxes()
+        for bad in ({"S004@": "why"}, {"S004@  ": "why"}, {"X123@fiber": "why"}, {"S04@fiber": "why"},
+                    {"@fiber": "why"}, {"S004@fiber": " "}, {"S004 @fiber": "why"}):
+            with self.assertRaises(ValueError, msg=str(bad)):
+                rep.errors(bad)
+            with self.assertRaises(ValueError, msg=str(bad)):
+                Plan(Path("w"), [], [], waive=bad)                    # build_plan(waive=...) too
+
+    def test_place_waiver_written(self) -> None:
+        rep = self.two_boxes()
+        with tempfile.TemporaryDirectory() as d:
+            w = {"S004@*rot_+10": "both tested", "S005@fiber_rot_+10": "closure checked by hand", "S001": "x"}
+            rep.enforce(w, out_dir=d, quiet=True)
+            data = json.loads(Path(d, "checks.json").read_text(encoding="utf-8"))
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["waived"], w)
+        self.assertEqual(data["waived_issues"][0], {"waiver": "S004@*rot_+10", "scope": "where", "code": "S004",
+                                                    "where": "fiber_rot_+10", "level": "error",
+                                                    "message": "small box", "reason": "both tested"})
+        self.assertEqual([(x["waiver"], x["where"]) for x in data["waived_issues"]],
+                         [("S004@*rot_+10", "fiber_rot_+10"), ("S004@*rot_+10", "finite_rot_+10"),
+                          ("S005@fiber_rot_+10", "fiber_rot_+10")])
+        self.assertEqual(data["unused_waivers"], ["S001"])
 
 
 class TestStructure(unittest.TestCase):
@@ -142,12 +223,48 @@ class TestStructure(unittest.TestCase):
         self.assertEqual(codes(check_whole_molecules(10, 4)), {"S002"})
         self.assertTrue(check_whole_molecules(12, 4).ok())
         self.assertEqual(codes(check_box(gro(1, box=5.0), 12.0)), {"S004"})
+        self.assertEqual(check_box(gro(1), 12.0, where="v").issues, [])
         self.assertTrue(check_periodic_twist(36, 10.0, 6).ok())
         self.assertEqual(codes(check_periodic_twist(10, 10.0, 6)), {"S005"})
         self.assertEqual(codes(check_bond_pairs([(3, 9)], 4)), {"S006"})
         self.assertTrue(check_bond_pairs([(3, 6)], 4).ok())
         self.assertEqual(codes(check_bond_lengths(gro(2), [(1, 5)], 0.2, 0.4)), {"S007"})  # 0.5 nm apart
         self.assertTrue(check_bond_lengths(gro(2), [(1, 5)], 0.4, 0.6).ok())
+
+    def test_box_periodic_axis(self) -> None:
+        g = gro(1)
+        g.box_z = 3.5                                      # a 10-disk fiber closed on its image along z
+        rep = check_box(g, 12.0, "fiber")
+        self.assertEqual(codes(rep), {"S004"})
+        self.assertIn("z=3.50", rep.issues[0].message)
+        self.assertTrue(check_box(g, 12.0, periodic_axes="z", min_periodic_edge=3.2).ok())
+        rep = check_box(g, 12.0, periodic_axes="z", min_periodic_edge=4.0)   # too short even when periodic
+        self.assertEqual(codes(rep), {"S004"})
+        self.assertIn("periodic axis z=3.50 nm < 4.0 nm", rep.issues[0].message)
+        g.box_x = 5.0                                      # a non-periodic axis keeps min_edge
+        rep = check_box(g, 12.0, periodic_axes="z", min_periodic_edge=3.2)
+        self.assertEqual([i.message.split(" nm")[0] for i in rep.issues], ["box edge(s) x=5.00"])
+        self.assertTrue(check_box(g, 12.0, periodic_axes="xz", min_periodic_edge=3.2).ok())
+        for bad in ("w", "zz"):
+            with self.assertRaises(ValueError):
+                check_box(g, 12.0, periodic_axes=bad, min_periodic_edge=3.2)
+        with self.assertRaises(ValueError):
+            check_box(g, 12.0, periodic_axes="z")           # no built-in cut-off: the caller gives it
+
+    def test_box_triclinic(self) -> None:
+        text = "\n".join(gro(1).generate_gro_text()[:-1]) + "\n   12.0 12.0 12.0 0 0 0 0 0 11.0\n"
+        g = GroFile.from_gro_text(text.splitlines())
+        self.assertEqual(g.box_triclinic, (0.0, 0.0, 0.0, 0.0, 0.0, 11.0))
+        h = box_heights(g)                                 # v3 leans along y: the y width shrinks
+        self.assertAlmostEqual(h[0], 12.0)
+        self.assertAlmostEqual(h[1], 12.0 * 12.0 / math.hypot(12.0, 11.0))
+        self.assertAlmostEqual(h[2], 12.0)
+        rep = check_box(g, 12.0, "tric")
+        self.assertEqual(codes(rep), {"S004"})              # the diagonal alone (12, 12, 12) would pass
+        self.assertIn("y=8.85", rep.issues[0].message)
+        self.assertIn("triclinic", rep.issues[0].message)
+        self.assertTrue(check_box(g, 8.0).ok())
+        self.assertEqual(box_heights(gro(1)), (12.0, 12.0, 12.0))
 
     def test_labels_and_ndx(self) -> None:
         g = gro(2)
@@ -158,6 +275,7 @@ class TestStructure(unittest.TestCase):
             p = Path(d, "a.ndx")
             p.write_text("[ Fiber1 ]\n1 2 3\n[ bad ]\n9\n", encoding="utf-8")
             self.assertEqual(codes(check_ndx(p, 8, required=["Fiber1", "fiberA"])), {"S010"})
+            self.assertEqual({i.where for i in check_ndx(p, 8).issues}, {"a.ndx"})     # the file when not given
 
 
 class TestFacts(unittest.TestCase):
@@ -258,6 +376,13 @@ class TestPlanChecks(unittest.TestCase):
             self.assertFalse(plan.preview().ok)
             plan = build_plan(steps, g, Path(d, "w"), extra_inputs=[top], waive={"P002": "x is defined elsewhere"})
             self.assertTrue(plan.preview().ok)
+            self.assertEqual([i.where for i in plan.report.issues if i.code == "P002"], ["1_md/plumed.dat:2"])
+            plan = build_plan(steps, g, Path(d, "w"), extra_inputs=[top], waive={"P002@1_md/plumed.dat": "x"})
+            self.assertTrue(plan.preview().ok)
+            self.assertIn('waived by "P002@1_md/plumed.dat"', str(plan.preview()))
+            plan = build_plan(steps, g, Path(d, "w"), extra_inputs=[top], waive={"P002@0_em/*": "x"})
+            self.assertFalse(plan.preview().ok)
+            self.assertIn("W001 waiver P002@0_em/* matches no issue", str(plan.preview()))
 
             top.write_text(TOP.format(n=4), encoding="utf-8")
             plan = build_plan([EM(maxwarn=1)], g, Path(d, "w2"), extra_inputs=[top])

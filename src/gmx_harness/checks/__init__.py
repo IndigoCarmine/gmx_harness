@@ -2,7 +2,9 @@
 
 Every check returns a ``Report`` of ``Issue``s with stable codes (``CODES``);
 ``report.enforce(WAIVE)`` raises ``HarnessCheckError`` unless every error is
-waived with a reason, ``WAIVE = {"S004": "box tested in run 123, no self-contact"}``.
+waived with a reason: ``WAIVE = {"S004@*fiber_rot_+10*": "box tested in run 123, no self-contact"}``
+waives S004 only where the issue's ``where`` matches the pattern, ``{"S004": ...}`` every S004
+(see ``gmx_harness.checks.report``).
 
 Layers (all pure Python; nothing here runs GROMACS or PLUMED):
 
@@ -23,6 +25,7 @@ from .report import CODES, HarnessCheckError, Issue, Report, validate_waivers
 from .structure import (
     check_bond_lengths,
     check_bond_pairs,
+    box_heights,
     check_box,
     check_contacts,
     check_labels,
@@ -48,6 +51,7 @@ __all__ = [
     "check_topology",
     "check_whole_molecules",
     "check_box",
+    "box_heights",
     "check_periodic_twist",
     "check_bond_pairs",
     "check_bond_lengths",
