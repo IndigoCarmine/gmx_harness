@@ -2,11 +2,11 @@
 
 ::
 
-    python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x           # preview only
-    python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x --write   # copy
-    python -m gmx_harness.archive --root D:/md_archive tree          # lineage
-    python -m gmx_harness.archive --root D:/md_archive verify        # re-hash everything
-    python -m gmx_harness.archive --root D:/md_archive export 20261012-002 restore --write
+    uv run python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x           # preview only
+    uv run python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x --write   # copy
+    uv run python -m gmx_harness.archive --root D:/md_archive tree          # lineage
+    uv run python -m gmx_harness.archive --root D:/md_archive verify        # re-hash everything
+    uv run python -m gmx_harness.archive --root D:/md_archive export 20261012-002 restore --write
 
 The archive is meant to be read without any tool. Files are copied unchanged, under their own
 names and in their own places; nothing is packed, split or renamed::
@@ -1381,7 +1381,7 @@ def main(argv: list[str], *, root: str | os.PathLike[str] | None = None,
 the size and mtime of an archived copy counts as unchanged; ``store`` hashes what it compares). Without
     ``--write`` store and export only preview. Returns 0, or 1 on conflicts / verify failures / errors.
     """
-    p = argparse.ArgumentParser(prog="python -m gmx_harness.archive",
+    p = argparse.ArgumentParser(prog="uv run python -m gmx_harness.archive",
                                 description="Store calculation directories in a plain, checksummed archive.")
     p.add_argument("--root", help="archive root directory")
     p.add_argument("--base", help="workspace root (relative paths, --all, status)")

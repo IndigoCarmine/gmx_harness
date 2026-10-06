@@ -18,7 +18,7 @@ answers ``ndisk`` from the structure it was relaxed from. When an input changes
 after the facts were written (e.g. ``sp/`` was rebuilt but an old relaxed file was
 kept), ``expect`` / ``check_fresh`` report ``F003``.
 
-``python -m gmx_harness.checks <dir>`` lists every facts file below ``dir`` with its
+``uv run python -m gmx_harness.checks <dir>`` lists every facts file below ``dir`` with its
 producer and staleness (read only).
 """
 

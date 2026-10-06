@@ -157,10 +157,10 @@ waiver には既知のコード、`@` の後の空でないパターン、空で
 ### 実行データのアーカイブ（store / export）
 
 ```bash
-python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x            # プレビュー
-python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x --write    # コピー
-python -m gmx_harness.archive --root D:/md_archive tree | verify
-python -m gmx_harness.archive --root D:/md_archive export 20261012-002 restore --write   # RUN/STEP も可
+uv run python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x            # プレビュー
+uv run python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x --write    # コピー
+uv run python -m gmx_harness.archive --root D:/md_archive tree | verify
+uv run python -m gmx_harness.archive --root D:/md_archive export 20261012-002 restore --write   # RUN/STEP も可
 ```
 
 `store` は系のディレクトリ（`<tree>/<system>/` と `<i>_<name>` のステップ）を、アーカイブの日付付きのラン

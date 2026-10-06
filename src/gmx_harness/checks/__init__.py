@@ -14,7 +14,7 @@ Layers (all pure Python; nothing here runs GROMACS or PLUMED):
 - ``plan``: a planned pipeline (``build_plan(..., checks=True)`` runs it)
 - ``postrun``: logs and COLVAR after a run
 
-``python -m gmx_harness.checks <dir>`` lists the facts files below ``dir``.
+``uv run python -m gmx_harness.checks <dir>`` lists the facts files below ``dir``.
 """
 
 from .facts import check_fresh, expect, facts_path, lookup, read_facts, record_facts

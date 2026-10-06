@@ -162,10 +162,10 @@ preflight script after running grompp/plumed) exists and still matches. All code
 ### Archiving runs (store / export)
 
 ```bash
-python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x            # preview
-python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x --write    # copy
-python -m gmx_harness.archive --root D:/md_archive tree | verify
-python -m gmx_harness.archive --root D:/md_archive export 20261012-002 restore --write   # or RUN/STEP
+uv run python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x            # preview
+uv run python -m gmx_harness.archive --root D:/md_archive store calc_metad/MOL_x --write    # copy
+uv run python -m gmx_harness.archive --root D:/md_archive tree | verify
+uv run python -m gmx_harness.archive --root D:/md_archive export 20261012-002 restore --write   # or RUN/STEP
 ```
 
 `store` copies a system directory (`<tree>/<system>/` with its `<i>_<name>` steps) into a dated run directory

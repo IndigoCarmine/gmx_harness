@@ -1,4 +1,4 @@
-"""``python -m gmx_harness.checks [DIR]``: list facts files and their staleness (read only)."""
+"""``uv run python -m gmx_harness.checks [DIR]``: list facts files and their staleness (read only)."""
 
 import sys
 
