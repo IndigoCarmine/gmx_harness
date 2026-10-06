@@ -152,7 +152,7 @@ waiver には既知のコード、`@` の後の空でないパターン、空で
 （テンプレートが使わない define も報告）、`check_tree` は実行後のログと COLVAR を読みます。
 `require_preflight=True` にすると、`preflight.ok`（ワークスペース側の preflight スクリプトが grompp/plumed を実行して書く）が
 存在して内容が一致するまで run.sh は起動を拒否します。コードの一覧: `gmx_harness.checks.CODES`
-（`harness/llm_docs/api.md` にも記載）。
+（`harness/skills/gmx-pipeline/api.md` にも記載）。
 
 ### 実行データのアーカイブ（store / export）
 

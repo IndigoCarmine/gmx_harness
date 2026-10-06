@@ -157,7 +157,7 @@ continuous with its own image to the minimum-image length only (a triclinic box 
 (including defines the template ignores), `check_tree` reads logs and COLVAR after a run, and
 `require_preflight=True` makes run.sh refuse to start until `preflight.ok` (written by the workspace's own
 preflight script after running grompp/plumed) exists and still matches. All codes: `gmx_harness.checks.CODES`
-(also listed in `harness/llm_docs/api.md`).
+(also listed in `harness/skills/gmx-pipeline/api.md`).
 
 ### Archiving runs (store / export)
 

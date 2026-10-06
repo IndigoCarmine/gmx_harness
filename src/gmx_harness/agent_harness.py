@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def harness_dir() -> Path:
-    """Directory of the bundled harness files (skills/, AGENTS.md, llm_docs/)."""
+    """Directory of the bundled harness files (skills/, AGENTS.md; the API reference is skills/gmx-pipeline/api.md)."""
     return Path(str(resources.files("gmx_harness").joinpath("harness")))
 
 

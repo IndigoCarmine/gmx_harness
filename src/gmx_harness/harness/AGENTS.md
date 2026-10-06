@@ -52,6 +52,7 @@ plan.write()
 A saved design can be reloaded with `load_json("pipeline.json")` and passed to `build_plan` the same way.
 
 ## References
-- API: `harness/llm_docs/api.md` inside the package (`gmx_harness.agent_harness.harness_dir()`)
+- API: `api.md` of the `gmx-pipeline` skill (installed with the skills; in the package:
+  `gmx_harness.agent_harness.harness_dir() / "skills/gmx-pipeline/api.md"`). Grep it for a name; it is long.
 - Skills: `gmx-pipeline`, `gmx-mdp-tuning`, `gmx-troubleshoot`, `gmx-relax`
 - Check codes: `gmx_harness.checks.CODES` (also in api.md)

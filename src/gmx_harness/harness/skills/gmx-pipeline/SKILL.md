@@ -8,6 +8,9 @@ description: Use gmx_harness to design a GROMACS MD pipeline (EM → NVT → NPT
 ## Principles
 - gmx_harness **only generates files**. Never run gmx or run.sh (see AGENTS.md).
 - Order: gather requirements → design → `save_json` → `build_plan` → show `summary()`/`preview()` → approval → `write()`.
+- Exact signatures, defaults and docstrings of the public API, and the table of check codes: `api.md` next to this
+  file (generated from the code). Grep it for the name you need instead of reading it whole, and use it rather than
+  guessing an argument or importing something that is not listed there.
 
 ## 1. Ask for these (do not guess them)
 - Starting structure (.gro), topology (topo.top), and the .itp files it includes

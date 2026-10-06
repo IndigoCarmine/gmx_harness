@@ -18,6 +18,7 @@ class TestInstallSkills(unittest.TestCase):
                 text = (target / name / "SKILL.md").read_text(encoding="utf-8")
                 self.assertTrue(text.startswith(f"---\nname: {name}\n"), name)
             self.assertTrue(Path(d, "AGENTS.md").exists())
+            self.assertIn("# gmx_harness API reference", (target / "gmx-pipeline" / "api.md").read_text(encoding="utf-8"))
 
             self.assertTrue(all(r.startswith("unchanged") for r in install_skills(target)))
 
@@ -35,6 +36,13 @@ class TestApiDocs(unittest.TestCase):
         text = generate_api_markdown()
         for name in ["build_plan", "OverwritePolicy", "MDParameters", "gmx_command", "RawShellStep", "install_skills"]:
             self.assertIn(name, text)
+
+    def test_compact(self) -> None:
+        text = generate_api_markdown()
+        self.assertEqual(text.count("\n### `CODES`"), 1)  # re-exports are documented once
+        self.assertIn("| `L003` |", text)
+        for noise in ["<factory>", "collections.abc.", "pathlib.", "(self", " - \n"]:
+            self.assertNotIn(noise, text)
 
     def test_write_to_path(self) -> None:
         with tempfile.TemporaryDirectory() as d:
