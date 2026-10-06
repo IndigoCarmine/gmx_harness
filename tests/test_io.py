@@ -37,6 +37,18 @@ class TestGro(unittest.TestCase):
             g2 = GroFile.from_gro_file(p)
         self.assertEqual([str(a) for a in g.atoms], [str(a) for a in g2.atoms])
 
+    def test_box_line(self) -> None:
+        g = GroFile.from_gro_text(GRO.splitlines(True))
+        self.assertIsNone(g.box_triclinic)
+        self.assertEqual(g.generate_gro_text()[-1], "2.5 2.5 2.5")       # rectangular: three numbers, as before
+        tric = GRO.replace("   2.50000   2.50000   2.50000", "   2.5 2.5 2.0 0 0 0 0 1.25 0.5")
+        g = GroFile.from_gro_text(tric.splitlines(True))
+        self.assertEqual(g.box_triclinic, (0.0, 0.0, 0.0, 0.0, 1.25, 0.5))
+        np.testing.assert_allclose(g.box_vectors, [[2.5, 0, 0], [0, 2.5, 0], [1.25, 0.5, 2.0]])
+        self.assertEqual(g.generate_gro_text()[-1], "2.5 2.5 2.0 0.0 0.0 0.0 0.0 1.25 0.5")
+        zeros = GRO.replace("   2.50000   2.50000   2.50000", "   2.5 2.5 2.5 0 0 0 0 0 0")
+        self.assertIsNone(GroFile.from_gro_text(zeros.splitlines(True)).box_triclinic)
+
     def test_atom_count_mismatch(self) -> None:
         with self.assertRaises(ValueError):
             GroFile.from_gro_text(GRO.replace("    3\n", "    4\n", 1).splitlines(True))

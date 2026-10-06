@@ -8,7 +8,8 @@ script runs, and can be chosen with environment variables:
     GMX         GROMACS command (default: first of gmx_d, gmx_mpi, gmx on PATH)
     MDRUN_ARGS  extra arguments appended to every ``mdrun`` (e.g. "-ntomp 8 -gpu_id 0")
 
-Besides GROMACS the scripts only need bash and awk.
+Besides GROMACS the scripts only need bash and awk (and sha256sum when
+``require_preflight`` is used).
 
 Every value generated into a script is either validated (``safety``) or
 quoted with ``shlex.quote``.
@@ -146,8 +147,29 @@ def gmx_command(subcommand: str, args: list[str], stdin: str | None = None) -> s
     return line
 
 
-def step_run_script(is_last: bool) -> str:
-    """``run.sh`` inside a step directory."""
+PREFLIGHT = "preflight.ok"
+
+
+def preflight_guard(where: str = ".") -> str:
+    """
+    Refuse to start unless ``<where>/preflight.ok`` exists and its ``sha256sum`` lines
+    still match (the inputs were not changed after the preflight run). Needs sha256sum
+    (GNU coreutils) besides bash; without it the script stops with its own message.
+    """
+    w = shlex.quote(where)
+    return (
+        "if ! command -v sha256sum >/dev/null 2>&1; then\n"
+        f'    echo "ERROR: sha256sum (GNU coreutils) is not available, so {PREFLIGHT} cannot be verified" >&2\n'
+        "    exit 1\nfi\n"
+        f'if [ ! -f {w}/{PREFLIGHT} ] || ! (cd {w} && sha256sum --quiet -c {PREFLIGHT}); then\n'
+        f'    echo "ERROR: {PREFLIGHT} is missing or the inputs changed since the preflight check;'
+        " run the preflight (grompp with each step's maxwarn / plumed driver) again\" >&2\n"
+        "    exit 1\nfi\n"
+    )
+
+
+def step_run_script(is_last: bool, require_preflight: bool = False) -> str:
+    """``run.sh`` inside a step directory (with ``require_preflight``: checks ``../preflight.ok`` first)."""
     done = 'if [ -f "output.gro" ]; then\n    echo "output.gro already exists. This calculation is finished."\n'
     done += "    . ./copy.sh\n" if not is_last else ""
     done += "    exit 0\nfi\n"
@@ -156,6 +178,7 @@ def step_run_script(is_last: bool) -> str:
         + FREEZE_GUARD
         + "\n"
         + done
+        + ("\n" + preflight_guard("..") if require_preflight else "")
         + "\n"
         + "if ls ./*.pdb >/dev/null 2>&1; then\n"
         + '    echo "this calculation has problems and this is already calculated."\n'
@@ -204,9 +227,11 @@ def copy_script(this_name: str, next_dir: str, next_name: str, carry: tuple[str,
     )
 
 
-def pipeline_run_script(step_dirs: list[str]) -> str:
+def pipeline_run_script(step_dirs: list[str], require_preflight: bool = False) -> str:
     """Top-level ``run.sh`` running every step in order and stopping at the first failure."""
     out = ["#!/bin/bash", "set -e", 'cd "$(dirname "$0")"', ""]
+    if require_preflight:
+        out += [preflight_guard().rstrip("\n"), ""]
     for d in step_dirs:
         q = shlex.quote(d)
         out += [f"(cd {q} && bash run.sh)",

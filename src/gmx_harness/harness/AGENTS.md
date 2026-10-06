@@ -18,6 +18,19 @@ Agents working on it follow these rules.
 4. **Do not delete or overwrite existing working directories with `rm` or `shutil`.** To regenerate, use `OverwritePolicy.REPLACE_GENERATED`.
    It only overwrites files that gmx_harness generated and that nobody has edited since.
 5. Do not hand-edit generated `.sh` files. If a change is needed, change the step parameters and regenerate.
+6. **Design checks are not optional.** `build_plan` runs `gmx_harness.checks` (codes such as `L003`, `P002`, `L004`);
+   an error makes `preview().ok` False. Fix the design. A waiver (`waive={...}`, or a script's `WAIVE`) is the human's
+   decision: explain the issue, ask, and write their reason. `{"CODE@pattern": "reason"}` waives only the issues
+   whose place (the `where` printed after the code: file, step or variant; fnmatch pattern) matches, e.g.
+   `{"S004@fiber_rot_+10": "..."}`; `{"CODE": "reason"}` waives every issue of that code. Prefer the place form.
+   Never add or widen a waiver on your own, and never turn checks off (`checks=False`).
+7. **Do not edit generated files or check records** (`calc*/`, `resource/{gro,top,fixed_gro,preco,rosette,sp,sp_relaxed,top_fixed}/`,
+   `*.facts.json`, `checks.json`, `preflight_checks.json`, `postcheck.json`, `preflight.ok`, `.gmx_harness_manifest.json`).
+   Rerun the stage script that makes them.
+8. **The archive (`gmx_harness.archive`) is append-only for you.** You may run `store` and `export` (they only preview
+   without `--write`; show the human the result). Never change, delete, move, rename or change the permissions of
+   anything inside the archive root (run directories, `run.json`, `SHA256SUMS`, `tree.json`, `.lock`, `.incoming-*`),
+   by any means. A left-over `.lock` or `.incoming-*`, or a failing `verify`, is reported to the human, who decides.
 
 ## Workflow
 
@@ -39,5 +52,7 @@ plan.write()
 A saved design can be reloaded with `load_json("pipeline.json")` and passed to `build_plan` the same way.
 
 ## References
-- API: `harness/llm_docs/api.md` inside the package (`gmx_harness.agent_harness.harness_dir()`)
+- API: `api.md` of the `gmx-pipeline` skill (installed with the skills; in the package:
+  `gmx_harness.agent_harness.harness_dir() / "skills/gmx-pipeline/api.md"`). Grep it for a name; it is long.
 - Skills: `gmx-pipeline`, `gmx-mdp-tuning`, `gmx-troubleshoot`, `gmx-relax`
+- Check codes: `gmx_harness.checks.CODES` (also in api.md)
