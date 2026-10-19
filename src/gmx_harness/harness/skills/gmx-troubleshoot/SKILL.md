@@ -26,7 +26,7 @@ fix the step parameters, and regenerate (`OverwritePolicy.REPLACE_GENERATED`).
 | `check_tree` reports `R006` (output.log, but no output.gro and no `Finished mdrun`) | The step timed out, crashed or is still running | Read the end of output.log and the job output; if it was interrupted, the human resubmits and it continues from output.cpt |
 | Need a longer run | nsteps reached | The human runs `bash extend.sh <ps>` in that step, then `run.sh` |
 | `ERROR: N_x finished without producing output.gro` | mdrun ended early (crash, walltime) | Look at output.log / the job log of that step |
-| Reports `this calculation has problems` | `*.pdb` files from an earlier failure remain | After fixing the cause, the **human** deletes the pdb files and reruns |
+| Reports `this calculation has problems` | `step*.pdb` files from an earlier failure remain | After fixing the cause, the **human** deletes the step*.pdb files and reruns |
 | `GROMACS not found (set GMX)` | gmx is not on PATH on the running machine | Load GROMACS (`module load` / `source GMXRC`) or set `GMX=/path/to/gmx_mpi` before running |
 | `sha256sum (GNU coreutils) is not available` / `preflight.ok is missing or the inputs changed` | `require_preflight=True`: run.sh checks `preflight.ok` | Install coreutils there, or have the human rerun the workspace's preflight script (it writes `preflight.ok`; the library does not) |
 

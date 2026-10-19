@@ -139,6 +139,7 @@ class MD(Calculation):
         additional_mdp_parameters: any extra/overriding mdp options (applied last-but-one; flexible escape hatch).
         continuation: mdp ``continuation`` (True/False -> yes/no). None keeps the template value.
         plumed: PLUMED input text; written as plumed.dat and run with ``-plumed`` (restarts add RESTART).
+        index_file: index file passed to grompp with ``-n`` (e.g. for ``freezegrps`` / ``tc_grps`` groups).
         mdrun_args: extra mdrun arguments placed right after ``mdrun``.
         extra_files: additional files for this step, {file name: content} (e.g. {"plumed.dat": text}).
         strict_mdp: raise on mdp validation errors (False: only warn).
@@ -159,10 +160,13 @@ class MD(Calculation):
     extra_files: dict[str, str] = dataclasses.field(default_factory=dict)
     plumed: str | None = None
     continuation: bool | None = None
+    index_file: str | None = None
     strict_mdp: bool = True
 
     def __post_init__(self) -> None:
         check_common(self.calculation_name, self.defines, self.maxwarn, self.temperature, self.gen_vel)
+        if self.index_file is not None:
+            validate_filename(self.index_file, "index_file")
         if self.type is MDType.berendsen:
             raise NotImplementedError("MDType.berendsen is not implemented")
         if self.nstout <= 0:
@@ -200,6 +204,7 @@ class MD(Calculation):
             strict=self.strict_mdp,
             maxwarn=self.maxwarn,
             restraint=self.useRestraint,
+            index_file=self.index_file,
             mdrun_args=self.mdrun_args,
             extra_files=self.extra_files,
             plumed=self.plumed,
