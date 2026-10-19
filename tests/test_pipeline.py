@@ -31,7 +31,8 @@ class PipelineTestCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
         (self.tmp / "start.gro").write_text(GRO)
-        (self.tmp / "topo.top").write_text("[ system ]\nx\n[ molecules ]\nMOL 1\n")
+        (self.tmp / "topo.top").write_text("[ moleculetype ]\nMOL 3\n[ atoms ]\n1 c 1 MOL C 1 0 12.0\n"
+                                           "[ system ]\nx\n[ molecules ]\nMOL 1\n")
         self.wd = self.tmp / "work"
         # input() must never be called by the library
         patcher = mock.patch.object(builtins, "input", side_effect=AssertionError("input() called"))

@@ -17,11 +17,16 @@ Quick start::
     print(plan.preview())
     plan.write()
 
+Design checks (``gmx_harness.checks``): ``build_plan`` checks the planned pipeline, and the
+stage scripts of a workspace hand values on with ``record_facts`` / ``expect``; errors
+stop the script unless waived with a reason, per code or per code and place
+(``report.enforce(WAIVE)``, ``WAIVE = {"S004@*fiber*": "why"}``).
+
 Not imported here: ``gmx_harness.relax`` (OpenMM soft-core pre-relaxation; heavy import)
 and ``gmx_harness.analysis`` (MDAnalysis trajectory analysis).
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .agent_harness import install_skills
 from .build import (
@@ -38,6 +43,7 @@ from .itp import generate_inermolecular_interactions
 from .index import format_ndx, molecule_atoms, write_ndx
 from .jobs import render_job_script, write_job_scripts
 from .mdp import MDParameters, MDPValidationError, ValidationIssue, validate_mdp_text
+from .checks import CODES, HarnessCheckError, Report, check_fresh, expect, expand_template, record_facts
 from .plumed import Layout, MoleculeLabels, PreprocessError, preprocess, preprocess_file
 from .pipeline import (
     OverwritePolicy,
@@ -149,6 +155,14 @@ __all__ = [
     "PreprocessError",
     "preprocess",
     "preprocess_file",
+    # design checks (more in gmx_harness.checks)
+    "CODES",
+    "HarnessCheckError",
+    "Report",
+    "record_facts",
+    "expect",
+    "check_fresh",
+    "expand_template",
     # safety
     "UnsafeNameError",
     "UnsafeOperationError",
