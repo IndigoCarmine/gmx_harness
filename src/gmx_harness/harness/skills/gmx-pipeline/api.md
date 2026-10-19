@@ -44,6 +44,9 @@ To add your own step type, subclass this, give it a ``calculation_name``
 attribute and implement ``generate``; validation and writing are handled
 by ``build_plan``.
 
+``parallel_across_systems``: True for a short, CPU-only step (e.g. ``gmx solvate``) that the
+tree's ``stebystep.sh`` may run for every system at once (``generate_stepbystep_runfile``).
+
 Methods:
 - `generate() -> dict[str, str]`
 - property `name`
@@ -202,6 +205,7 @@ or design-check errors that are not waived (``check_errors``); ``write`` then re
 Methods:
 - property `check_errors` - Design-check errors (``gmx_harness.checks``) that are not waived.
 - property `ok`
+- `report(label: str | None = None) -> str` - Short account of a write for the log: ``<label>: N created, M updated``, then one line per
 
 ### class `PlanConflictError(preview: 'PlanPreview')`  (bases: RuntimeError)
 ``Plan.write`` refused; ``.preview`` lists every conflict.
@@ -219,13 +223,26 @@ mylibs-compatible one-shot ``build_plan(...).write(...)``.
 ### enum `OverwriteType`
 `no`, `full_overwrite`, `add_calculation`
 
-### `generate_stepbystep_runfile(init_structures: list[str], calculation_name_and_isparaleljob: list[tuple[str, bool]], calc_path: str) -> None`
+### `generate_stepbystep_runfile(init_structures: list[str], calculation_name_and_isparaleljob: Sequence[tuple[str, bool]] | Sequence[Calculation], calc_path: str) -> None`
 Write ``<step dir>.sh`` per step plus ``stebystep.sh`` into ``calc_path``, running one
 step for every structure directory before moving to the next step (optionally in parallel).
+
+The steps are either the pipeline's ``Calculation`` list as given to ``build_plan`` (directory
+names and ``parallel_across_systems`` are taken from it) or ``(step dir, run in parallel)`` pairs.
 
 ### `generate_batch_execution_script(init_name: list[str], base_dir: str, calc_path: str | None = None, command: str = 'bash sh', *, allow_unsafe: bool = False) -> None`
 Write ``base_dir/run.sh`` that runs ``command`` in every ``<init>/<calc_path>`` directory.
 A ``command`` other than "bash run.sh" is unchecked shell code and needs ``allow_unsafe=True``.
+
+### `step_dir_names(calculations: Sequence[Calculation]) -> list[str]`
+The step directory names ``build_plan`` gives ``calculations``: ``<i>_<calculation name>``.
+
+### `write_tree(tree: str | PathLike[str], systems: Sequence[str], calculations: Sequence[Calculation], job_template: str | None = None, *, overwrite_jobs: bool = False, **job_options: Any) -> list[str]`
+Write the tree-level scripts of a calc tree whose systems were planned (``build_plan``) with
+``calculations``: ``run.sh`` (every system, whole pipeline), ``stebystep.sh`` + one ``<step dir>.sh``
+per step (step by step across systems), and, with a ``job_template``, ``<system>/<job file>`` +
+``submit.sh`` / ``submit_restart.sh`` (``write_job_scripts``; ``job_options`` go to it, and
+``overwrite_jobs`` is its ``overwrite``). Returns the names written, relative to ``tree``.
 
 ### `gmx_command(subcommand: str, args: list[str], stdin: str | None = None) -> str`
 One quoted ``"$GMX" <subcommand>`` command line, optionally fed ``stdin`` (e.g. group selections).
@@ -280,6 +297,16 @@ Methods:
 - `rotate(matrix: NDArray[float64]) -> None`
 - `atoms() -> list[GroAtom]`
 - `to_gro(title: str = 'MOL', box: tuple[float, float, float] = (0.0, 0.0, 0.0), renumber: bool = False) -> GroFile` - All atoms as one ``GroFile`` (copies). ``renumber`` renumbers atoms from 1.
+- classmethod `replicate(monomer: GroFile, transforms: Iterable[RigidTransform]) -> 'Assembly'` - One copy of ``monomer`` per transform, in order; residues numbered 1, 2, ... (``number_residues``).
+- classmethod `concat(*assemblies: 'Assembly') -> 'Assembly'` - Copies of the molecules of ``assemblies``, one after the other (residue numbers kept).
+- `transformed(transform: RigidTransform) -> 'Assembly'` - A copy with every molecule moved by ``transform``.
+- `repeat(vector: ArrayLike, n: int) -> 'Assembly'` - ``n`` copies of the whole assembly, copy k shifted by k * ``vector`` (nm), copy by copy
+- `number_residues(start: int = 1) -> 'Assembly'` - A copy with residues numbered consecutively from ``start`` in atom order. A new residue
+- `positions() -> NDArray[float64]` - Read-only (N, 3) copy of all coordinates (nm), molecule by molecule.
+- `bounds() -> tuple[NDArray[float64], NDArray[float64]]` - (lowest, highest) corner of the atoms' bounding box (nm).
+- `extent() -> NDArray[float64]` - Size of the atoms' bounding box along x, y, z (nm).
+- `fitting_box(*, factor: float = 1.0, pad: float = 0.0, min_edge: float = 0.0) -> tuple[float, float, float]` - Box edges ``max(factor * extent + 2 * pad, min_edge)`` along x, y, z (nm).
+- `centered_in_box(box: tuple[float, float, float], about: ArrayLike | None = None) -> 'Assembly'` - A copy moved so that ``about`` lands on the centre of ``box`` (nm). ``about`` = None uses
 
 ### `pre_coordinate(molecule: GroFile, top: int, side_a: int, side_b: int) -> GroFile`
 Put atom ``top`` at the origin, turn the sum vector of atoms ``side_a`` and
@@ -305,6 +332,58 @@ Like ``make_rosette2`` but spread over a half circle (180 degrees).
 ### `make_oligorosette(rosette: GroFile, n: int, length: float, angle: float, slip: float = 0, degree: bool = True) -> Assembly`
 Stack ``n`` copies of ``rosette`` along z every ``length`` nm, each turned by
 ``angle`` more about z; a non-zero ``slip`` (nm) offsets the stack into a helix.
+
+### class `RigidTransform(r: ArrayLike, t: ArrayLike)`
+``x -> R @ x + t`` with ``R`` a proper rotation. Immutable; ``a @ b`` applies ``b`` first.
+
+Build one with ``identity``, ``rotation``, ``translation``, ``align``, ``frame`` or
+``fit``; ``from_matrix`` refuses anything that is not a proper rotation (a mirror image
+or a scaling), so a transform can never turn a molecule into its enantiomer.
+
+Methods:
+- classmethod `from_matrix(r: ArrayLike, t: ArrayLike = (0.0, 0.0, 0.0)) -> 'RigidTransform'` - From a 3x3 rotation matrix and a shift (nm). Raises ValueError unless ``r`` is a proper rotation.
+- classmethod `identity() -> 'RigidTransform'`
+- classmethod `translation(vector: ArrayLike) -> 'RigidTransform'` - Shift by ``vector`` (nm).
+- classmethod `rotation(axis: Literal['x', 'y', 'z'], angle: float, degrees: bool = False, center: ArrayLike = (0.0, 0.0, 0.0)) -> 'RigidTransform'` - Right-handed rotation by ``angle`` about the line through ``center`` along ``axis``.
+- classmethod `align(vector: ArrayLike, target: ArrayLike) -> 'RigidTransform'` - Smallest rotation about the origin turning the direction of ``vector`` into that of ``target``.
+- classmethod `frame(x_dir: ArrayLike, z_dir: ArrayLike) -> 'RigidTransform'` - Rotation about the origin that turns ``x_dir`` onto +x and ``z_dir`` into the xz plane
+- classmethod `fit(mobile: ArrayLike, target: ArrayLike) -> 'RigidTransform'` - Proper rotation + shift that brings the points ``mobile`` closest to ``target``
+- property `matrix` - The rotation matrix ``R`` (read-only).
+- property `shift` - The shift ``t`` (nm, read-only).
+- property `angle` - Rotation angle of ``R`` in degrees (0..180).
+- `apply(points: ArrayLike) -> NDArray[float64]` - New array of the transformed points ((3,) or (N, 3)); the input is not changed.
+- `inverse() -> 'RigidTransform'`
+- `power(n: int) -> 'RigidTransform'` - This transform applied ``n`` times (``n`` >= 0).
+
+### `save_assembly(base: str | PathLike[str], gro: GroFile, natoms_per_mol: int, groups: Mapping[str, Iterable[int]]) -> list[Path]`
+Write ``<base>.gro``, ``<base>.pdb`` (for viewers) and ``<base>.ndx`` for a system of identical
+molecules of ``natoms_per_mol`` atoms. ``groups`` maps index-group names to 0-based molecule
+numbers (``molecule_atoms``). ``base`` has no extension (one is appended, never replaced, so a
+name like ``fiber_rot_+0.5`` is safe). Returns the written paths.
+
+### `min_distance(gro: GroFile, natoms_per_mol: int, mols_a: Iterable[int], mols_b: Iterable[int] | None = None, *, atoms: Iterable[int] | None = None, pbc: str = 'xyz', exclude_neighbours: int = 0) -> float`
+Shortest distance (nm) between ``atoms`` of a molecule in ``mols_a`` and ``atoms`` of a different
+molecule in ``mols_b`` (``mols_b`` = None: between two molecules of ``mols_a``). Pairs of molecules
+whose numbers differ by ``exclude_neighbours`` or less are skipped (1 = skip direct neighbours of a
+chain). inf if no pair is left.
+
+### `count_contacts(gro: GroFile, natoms_per_mol: int, mols_a: Iterable[int], mols_b: Iterable[int] | None = None, *, cutoff: float, atoms: Iterable[int] | None = None, pbc: str = 'xyz', exclude_neighbours: int = 0) -> int`
+Number of atom pairs closer than ``cutoff`` nm, selected as in ``min_distance``. With ``mols_b`` = None
+each pair is counted once; with ``mols_b`` every (A atom, B atom) pair is counted, so keep A and B apart.
+
+### `find_intermolecular_pairs(gro: GroFile, natoms_per_mol: int, donors: Iterable[int], acceptors: Iterable[int], cutoff: float, *, pbc: str = 'xyz') -> list[tuple[int, int, float]]`
+Every (donor, acceptor) atom pair of *different* molecules closer than ``cutoff`` nm, as
+``(donor, acceptor, distance)`` with 1-based atom numbers of the whole system. ``donors`` and
+``acceptors`` are atom numbers within a molecule. Ordered by molecule, then by the order of
+``donors``, then by acceptor. Use it to find the H-bonds of a built assembly for
+``write_intermolecular_bonds`` instead of listing them by hand.
+
+### `centroid(gro: GroFile, atoms: Iterable[int] | None = None) -> NDArray[float64]`
+Mean position (nm) of ``atoms`` (1-based positions in ``gro``; None = all).
+
+### `plane_normal(gro: GroFile, atoms: Iterable[int]) -> NDArray[float64]`
+Unit normal of the best plane through ``atoms`` (1-based positions in ``gro``, at least 3):
+the direction of least spread. Its sign is not chosen by any rule; orient it yourself if it matters.
 
 ### class `GroAtom(atom_number: int, atom_name: str, residue_name: str, residue_number: int, coordinate: NDArray[float64])`
 One atom line of a .gro file. ``index`` is the atom number, ``coordinate`` is in nm.
@@ -333,6 +412,8 @@ Methods:
 - `save_gro(file_path: str) -> None`
 - `generate_pdb_text() -> str` - PDB text (coordinates converted to Angstrom) with a CRYST1 box line, for viewers.
 - `save_pdb(file_path: str) -> None`
+- `positions(atoms: Iterable[int] | None = None) -> NDArray[float64]` - Read-only (N, 3) copy of the coordinates (nm), for measuring or fitting.
+- `transformed(transform: 'RigidTransform') -> 'GroFile'` - A copy with every atom moved by ``transform``; this structure is not changed.
 - `renumber(start: int = 1) -> None`
 - `set_residue_number(number: int) -> None`
 - `translate(vector: ArrayLike) -> None`
@@ -371,6 +452,25 @@ next monomer's atoms; the last monomer of each ring wraps to the first.
 Returns the global 1-based atom pairs. Include the file in topo.top (e.g.
 inside ``#ifdef INTER``) and pass ``defines=["INTER"]`` to the MD steps.
 
+### `format_intermolecular_bonds(bonds: Iterable[tuple[int, int]], length: float, k: float) -> str`
+``[ intermolecular_interactions ]`` text with one harmonic bond (funct 6: no exclusions) of
+``length`` nm and force constant ``k`` kJ/(mol nm^2) per 1-based global atom pair in ``bonds``.
+
+### `write_intermolecular_bonds(path: str | PathLike[str], bonds: Iterable[tuple[int, int]], length: float, k: float) -> None`
+Write ``format_intermolecular_bonds(bonds, length, k)`` to ``path``. Include the file in the topology
+inside ``#ifdef INTER`` (``prepare_topology``) so the bonds act only in the steps with ``defines=["INTER"]``.
+``bonds`` may come straight from ``geometry.find_intermolecular_pairs`` (the distance is ignored).
+
+### `save_mol(gro: GroFile, path: str | PathLike[str], *, charge: int = 0) -> None`
+Write ``gro`` as an MDL .mol file. Bonds and bond orders are perceived from the coordinates by
+RDKit (``rdDetermineBonds``, total ``charge``); elements are the first letter of each atom name
+(``GroAtom.atom_symbol``), as for ``save_xyz``.
+
+### `gro_from_mol(path: str | PathLike[str], template: GroFile) -> GroFile`
+A copy of ``template`` (names, residues, box) with the conformation of the .mol file at ``path``.
+The .mol must have the template's atoms in the same order (hydrogens included); a different
+count or an element that does not match the atom name raises ValueError.
+
 ### `install_skills(target: str | Path = '.claude/skills', *, agents_md: str | Path | None = None, force: bool = False) -> list[str]`
 Copy the bundled Claude Code skills into ``target`` (and AGENTS.md to ``agents_md`` if given).
 
@@ -396,6 +496,11 @@ Set the count of ``[ molecules ]`` entries (all of them, or only ``names``) to `
 Rewritten entries are formatted as `` NAME<pad to 16> COUNT``.
 With several molecule types, ``names`` is required (one count for all of them is
 almost never meant).
+
+### `atom_types(top_path: str | PathLike[str], molecule: str | None = None) -> list[str]`
+Atom types (2nd column of ``[ atoms ]``) of one ``[ moleculetype ]`` of a .top/.itp file, in atom
+order (entry k is atom k + 1). ``molecule`` names the moleculetype; it may be left out when the
+file defines only one. ``#include`` files are not followed.
 
 ### `add_conditional_include(text: str, itp: str, define: str = 'INTER') -> str`
 Append ``#ifdef DEFINE / #include "itp" / #endif`` at the end of the topology.
@@ -614,8 +719,12 @@ S006: (a, b) with a in the monomer and b in the monomer pair (1..2*natoms).
 ### `check_bond_lengths(gro: GroFile, bonds: Sequence[tuple[int, int]], lo: float, hi: float, where: str = '') -> Report`
 S007: every built bond (global 1-based atom pairs) is between ``lo`` and ``hi`` nm.
 
-### `check_contacts(gro: GroFile, natoms_per_mol: int, threshold: float = 0.1, where: str = '') -> Report`
-S008 (warn): atoms of different molecules closer than ``threshold`` nm (no PBC; cell list).
+### `check_contacts(gro: GroFile, natoms_per_mol: int, threshold: float = 0.1, where: str = '', *, pbc: str = '') -> Report`
+S008 (warn): atoms of different molecules closer than ``threshold`` nm (cell list).
+
+``pbc`` names the axes (any of ``"xyz"``) along which the minimum-image convention is applied
+with the box of ``gro`` (rectangular only), so contacts through the periodic boundary of a
+periodic fiber or sheet are found too; ``""`` (the default) ignores images.
 
 ### `check_labels(gro: GroFile, label_names: Sequence[str], nmol: int, offset: int = 0, where: str = '') -> Report`
 S009: atoms offset.. of the system repeat the labeled monomer's atom names ``nmol`` times.
@@ -798,8 +907,10 @@ the size and mtime of an archived copy counts as unchanged; ``store`` hashes wha
 
 ## gmx_harness.relax
 
-### `relax(gro_path: str, top_path: str, out_dir: str, include_dir: str | None = None, fixed_atom_k: Quantity = 1000000.0 kJ/(nm**2 mol)) -> str`
+### `relax(gro_path: str, top_path: str, out_dir: str, include_dir: str | None = None, fixed_atom_k: Quantity = 1000000.0 kJ/(nm**2 mol), out_name: str | None = None) -> str`
 Relax ``gro_path``/``top_path`` and write ``<stem>_relaxed.gro`` into ``out_dir``.
+
+``out_name`` gives the output file name instead (a plain file name, e.g. ``"<stem>.gro"``).
 
 ``include_dir`` is forwarded to GromacsTopFile for resolving ``#include``s
 that live outside the .top file's own directory (e.g. a shared
@@ -817,6 +928,22 @@ Raises:
         typo fails immediately rather than after the whole minimization.
     ValueError: for an unsupported topology (see add_softcore_lj) or a
         malformed inter-fiber .itp (see parse_inter_bonds).
+
+### `relax_systems(systems: Sequence[str], src_dir: str | PathLike[str], top_dir: str | PathLike[str], out_dir: str | PathLike[str], *, top_suffix: str = '_fixed.top', keep_existing: bool = True, copy_ndx: bool = True, include_dir: str | None = None, fixed_atom_k: Quantity = 1000000.0 kJ/(nm**2 mol)) -> dict[str, str]`
+Relax every ``<src_dir>/<system>.gro`` with ``<top_dir>/<system><top_suffix>`` into ``<out_dir>/<system>.gro``.
+
+With ``copy_ndx`` the matching ``<src_dir>/<system>.ndx`` is copied next to it, so the
+relaxed structure keeps its index groups. With ``keep_existing`` (the default) a system
+whose ``<out_dir>/<system>.gro`` already exists is left alone: a relaxed structure may
+already feed submitted jobs, so redo one by deleting it by hand. Every input is checked
+before the first (slow) minimization starts.
+
+Returns:
+    ``{system: "relaxed" | "kept"}`` in the order of ``systems``.
+
+Raises:
+    NotADirectoryError: if ``out_dir`` does not exist.
+    FileNotFoundError: if an input of a system to relax is missing.
 
 ### `parse_inter_bonds(itp_path: str) -> list[tuple[int, int, float, float]]`
 Parse the [ bonds ] rows of an [ intermolecular_interactions ] .itp.
@@ -926,3 +1053,8 @@ Write ``basedir/<commandname>.sh`` that runs one analysis command in every
 ``["hbond", "-f", "output.xtc", "-s", "output.tpr", "-num", "hbond.xvg"]`` with
 ``stdin="0 0"`` (group selections), or a raw shell string, which is unchecked
 and needs ``allow_unsafe=True``. ``"$GMX"`` is the GROMACS command in the script.
+
+### `make_analyze_command_scripts(basedir: str, commands: Sequence[tuple[str, str | list[str], str | None, str]], *, runner: str = 'run_analyze_all.sh', allow_unsafe: bool = False) -> list[str]`
+``make_analyze_command_script`` for every ``(step dir, command, stdin, script name)`` in ``commands``,
+plus ``basedir/<runner>`` that runs those scripts one after the other. Returns the paths written,
+the runner last.

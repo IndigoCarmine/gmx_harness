@@ -12,6 +12,35 @@
 # with natoms=10, nmols_in_rosette=6 the closures move from (51, 0) to (51, 60)
 # and from (111, 60) to (111, 120).
 
+import os
+from collections.abc import Iterable
+
+
+def format_intermolecular_bonds(bonds: Iterable[tuple[int, int]], length: float, k: float) -> str:
+    """
+    ``[ intermolecular_interactions ]`` text with one harmonic bond (funct 6: no exclusions) of
+    ``length`` nm and force constant ``k`` kJ/(mol nm^2) per 1-based global atom pair in ``bonds``.
+    """
+    lines = ["[ intermolecular_interactions ]\n", "[ bonds ]\n", ";  ai    aj funct   length    k\n"]
+    for i, j in bonds:
+        if i < 1 or j < 1 or i == j:
+            raise ValueError(f"bond ({i}, {j}): atom numbers must be >= 1 and different")
+        lines.append(f"{i:6d} {j:6d}   6    {length:6.3f}   {k:6.0f}\n")
+    return "".join(lines)
+
+
+def write_intermolecular_bonds(path: str | os.PathLike[str], bonds: Iterable[tuple[int, int]], length: float,
+                               k: float) -> None:
+    """
+    Write ``format_intermolecular_bonds(bonds, length, k)`` to ``path``. Include the file in the topology
+    inside ``#ifdef INTER`` (``prepare_topology``) so the bonds act only in the steps with ``defines=["INTER"]``.
+    ``bonds`` may come straight from ``geometry.find_intermolecular_pairs`` (the distance is ignored).
+    """
+    text = format_intermolecular_bonds([(b[0], b[1]) for b in bonds], length, k)
+    with open(path, "w", newline="\n") as f:
+        f.write(text)
+
+
 def generate_inermolecular_interactions(
     natoms: int,
     nmols: int,
@@ -48,12 +77,6 @@ def generate_inermolecular_interactions(
                 )
             )
 
-    #   135   286     1     0.3   5000
-    with open(outfile_path, "w", newline="\n") as f:
-        f.write("[ intermolecular_interactions ]\n")
-        f.write("[ bonds ]\n")
-        f.write(";  ai    aj funct   length    k\n")
-        for b in grobalbond:
-            f.write(f"{b[0]:6d} {b[1]:6d}   6    {bondleng:6.3f}   {k:6.0f}\n")
+    write_intermolecular_bonds(outfile_path, grobalbond, bondleng, k)
 
     return grobalbond

@@ -189,6 +189,27 @@ fiber.to_gro(box=(10, 10, 3.5), renumber=True).save_gro("fiber.gro")
 `gmx_harness.build.rotation` / `align`（3x3 行列。`GroFile.rotate` は scipy の `Rotation` も受け付けます）があります。
 mylibs の `pre_coordinator` / `rosette_maker` からの移植で、座標は 1e-16 nm 程度で一致します。
 
+新しいスクリプトでは、座標に直接触らずに組み立てる。分子は剛体としてだけ動かし（`RigidTransform`。鏡像は作れない）、
+どの呼び出しも新しいオブジェクトを返す。座標は測るためだけに読み、読めるのは書き込み不可のコピーである
+（`GroFile.positions()`, `gmx_harness.geometry`）。
+
+```python
+T = RigidTransform.rotation("x", 90, degrees=True)                  # translation/align/frame/fit, a @ b でも作れる
+tape = Assembly.replicate(mono, [RigidTransform.translation([0.9 * k, 0, 0]) for k in range(16)])
+sheet = tape.transformed(T).repeat([0, 0.35, 0], 16)                # 0.35 nm おきに 16 層
+box = (14.4, 5.6, float(sheet.extent()[2]) + 4.0)
+gro = sheet.centered_in_box(box).number_residues().to_gro(box=box, renumber=True)
+save_assembly("MOL_sheet", gro, len(mono), {"Sheet": range(256)})  # .gro, .pdb, .ndx
+
+pairs = find_intermolecular_pairs(gro, len(mono), donors=(10, 12), acceptors=(16, 14), cutoff=0.35)
+write_intermolecular_bonds("MOL_sheet_hbond.itp", pairs, length=0.29, k=1000)
+print(min_distance(gro, len(mono), range(16), range(16, 32)))     # 1 層目と 2 層目（最小イメージ規約）
+```
+
+ほかに `atom_types(top)`（moleculetype の原子タイプ）、`save_mol` / `gro_from_mol`（extra `gmx-harness[rdkit]`。
+モノマーを分子エディタに渡して戻す）、`relax_systems`、`write_tree`、`PlanPreview.report`、
+`analysis.make_analyze_command_scripts` がある。
+
 ## mylibs からの移行
 
 | mylibs | gmx_harness |

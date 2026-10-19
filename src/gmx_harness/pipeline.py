@@ -22,11 +22,13 @@ import stat
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .checks.plan import check_plan
 from .checks.report import Issue, Report, validate_waivers
 from .hashing import sha256_file
+from .jobs import write_job_scripts
 from .safety import UnsafeOperationError, ensure_deletable_root, ensure_within, validate_filename, validate_name
 from .scripts import CARRY_DEFAULT, NOOP_GROMPP, copy_script, validate_carry, pipeline_run_script, step_run_script
 from .steps.base import Calculation
@@ -133,6 +135,16 @@ class PlanPreview:
             out.append("checks:")
             out += [f"    {ln}" for ln in Report(self.issues).format(self.waived).splitlines()]
         out.append("status: " + ("written" if self.written else ("OK to write" if self.ok else "REFUSED")))
+        return "\n".join(out)
+
+    def report(self, label: str | None = None) -> str:
+        """
+        Short account of a write for the log: ``<label>: N created, M updated``, then one line per
+        conflict and per earlier run output that was kept (``label`` defaults to ``working_dir``).
+        """
+        out = [f"{label or self.working_dir}: {len(self.create)} created, {len(self.overwrite)} updated"]
+        out += [f"    CONFLICT: {c}" for c in self.conflicts]
+        out += [f"    earlier result kept: {old}" for old in self.stale_outputs]
         return "\n".join(out)
 
 
@@ -348,7 +360,7 @@ def build_plan(
 
     carry_t = validate_carry(tuple(carry))
     wd = Path(working_dir)
-    steps = [StepPlan(i, c.name, f"{i}_{c.name}", c) for i, c in enumerate(calculations)]
+    steps = [StepPlan(i, c.name, d, c) for (i, c), d in zip(enumerate(calculations), step_dir_names(calculations))]
     files: list[PlannedFile] = []
 
     for i, s in enumerate(steps):
@@ -445,18 +457,34 @@ def launch(
     return plan.write(policy)
 
 
+def step_dir_names(calculations: Sequence[Calculation]) -> list[str]:
+    """The step directory names ``build_plan`` gives ``calculations``: ``<i>_<calculation name>``."""
+    return [f"{i}_{c.name}" for i, c in enumerate(calculations)]
+
+
 def generate_stepbystep_runfile(
     init_structures: list[str],
-    calculation_name_and_isparaleljob: list[tuple[str, bool]],
+    calculation_name_and_isparaleljob: Sequence[tuple[str, bool]] | Sequence[Calculation],
     calc_path: str,
 ) -> None:
     """
     Write ``<step dir>.sh`` per step plus ``stebystep.sh`` into ``calc_path``, running one
     step for every structure directory before moving to the next step (optionally in parallel).
+
+    The steps are either the pipeline's ``Calculation`` list as given to ``build_plan`` (directory
+    names and ``parallel_across_systems`` are taken from it) or ``(step dir, run in parallel)`` pairs.
     """
+    items = list(calculation_name_and_isparaleljob)
+    if items and all(isinstance(c, Calculation) for c in items):
+        calcs = [c for c in items if isinstance(c, Calculation)]
+        pairs = [(d, type(c).parallel_across_systems) for d, c in zip(step_dir_names(calcs), calcs)]
+    elif all(isinstance(c, tuple) for c in items):
+        pairs = [(str(n), bool(par)) for n, par in (c for c in items if isinstance(c, tuple))]
+    else:
+        raise TypeError("pass either Calculation steps or (step dir, parallel) pairs, not a mix")
     for s in init_structures:
         validate_name(s, "init structure directory")
-    for calculation_name, do_parallel in calculation_name_and_isparaleljob:
+    for calculation_name, do_parallel in pairs:
         validate_name(calculation_name, "step directory")
         lines = ["#!/bin/bash"]
         if do_parallel:
@@ -469,9 +497,36 @@ def generate_stepbystep_runfile(
         Path(calc_path, f"{calculation_name}.sh").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     with open(os.path.join(calc_path, "stebystep.sh"), "w", newline="\n") as f:
         f.write("#!/bin/bash\nset -e\n")
-        for calculation_name, _ in calculation_name_and_isparaleljob:
+        for calculation_name, _ in pairs:
             f.write(f"bash {shlex.quote(calculation_name + '.sh')}\n")
         f.write('echo "All calculations are done"\n')
+
+
+def write_tree(
+    tree: str | os.PathLike[str],
+    systems: Sequence[str],
+    calculations: Sequence[Calculation],
+    job_template: str | None = None,
+    *,
+    overwrite_jobs: bool = False,
+    **job_options: Any,
+) -> list[str]:
+    """
+    Write the tree-level scripts of a calc tree whose systems were planned (``build_plan``) with
+    ``calculations``: ``run.sh`` (every system, whole pipeline), ``stebystep.sh`` + one ``<step dir>.sh``
+    per step (step by step across systems), and, with a ``job_template``, ``<system>/<job file>`` +
+    ``submit.sh`` / ``submit_restart.sh`` (``write_job_scripts``; ``job_options`` go to it, and
+    ``overwrite_jobs`` is its ``overwrite``). Returns the names written, relative to ``tree``.
+    """
+    root = os.fspath(tree)
+    names = list(systems)
+    generate_batch_execution_script(names, root)
+    generate_stepbystep_runfile(names, list(calculations), root)
+    written = ["run.sh", "stebystep.sh", *(f"{d}.sh" for d in step_dir_names(calculations))]
+    if job_template is not None:
+        paths = write_job_scripts(root, names, job_template, overwrite=overwrite_jobs, **job_options)
+        written += [os.path.relpath(p, root) for p in paths]
+    return written
 
 
 def generate_batch_execution_script(
