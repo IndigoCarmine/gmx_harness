@@ -37,6 +37,8 @@ class Solvation(Calculation):
     then add the solvent's #include and [ molecules ] line to topo.top.
     """
 
+    parallel_across_systems = True
+
     def __init__(self, solvent: str = "MCH", calculation_name: str = "solvation", nmol: int = 100, ntry: int = 300):
         self.solvent = _check_solvent(solvent)
         self.calculation_name = validate_name(calculation_name)
@@ -82,6 +84,8 @@ class RuntimeSolvation(Calculation):
     from the box of input.gro (``rate`` x bulk density). Prefer ``SolvationMCH``.
     """
 
+    parallel_across_systems = True
+
     def __init__(self, *, solvent: str = "MCH", calculation_name: str = "solvation", rate: float = 1.0,
                  ntry: int = 300):
         warnings.warn("RuntimeSolvation is deprecated; use SolvationMCH", DeprecationWarning, stacklevel=2)
@@ -121,6 +125,8 @@ class RuntimeSolvation(Calculation):
 class SolvationSCP216(Calculation):
     """Fill the box with SPC216 water (``gmx solvate -cs spc216.gro``). topo.top must already include a water model."""
 
+    parallel_across_systems = True
+
     def __init__(self, calculation_name: str = "solvation"):
         self.calculation_name = validate_name(calculation_name)
 
@@ -147,6 +153,8 @@ class SolvationMCH(Calculation):
     Attributes:
         scale: van der Waals radius scaling for gmx solvate (-scale). Smaller packs more tightly.
     """
+
+    parallel_across_systems = True
 
     def __init__(self, calculation_name: str = "solvation", scale: float = 0.57):
         self.calculation_name = validate_name(calculation_name)

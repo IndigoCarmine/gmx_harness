@@ -7,7 +7,9 @@ processing multiple simulation files, and generating analysis scripts.
 import copy
 import logging
 import os
+import shlex
 import warnings
+from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial, total_ordering
 from typing import Any, Callable, Iterator, Protocol, Self
@@ -357,3 +359,24 @@ def make_analyze_command_script(
     with open(path, "w", newline="\n") as f:
         f.write("\n".join(script))
     return path
+
+
+def make_analyze_command_scripts(
+    basedir: str,
+    commands: Sequence[tuple[str, str | list[str], str | None, str]],
+    *,
+    runner: str = "run_analyze_all.sh",
+    allow_unsafe: bool = False,
+) -> list[str]:
+    """
+    ``make_analyze_command_script`` for every ``(step dir, command, stdin, script name)`` in ``commands``,
+    plus ``basedir/<runner>`` that runs those scripts one after the other. Returns the paths written,
+    the runner last.
+    """
+    paths = [make_analyze_command_script(basedir, step, command, name, stdin=stdin, allow_unsafe=allow_unsafe)
+             for step, command, stdin, name in commands]
+    validate_filename(runner, "runner")
+    path = os.path.join(basedir, runner)
+    with open(path, "w", newline="\n") as f:
+        f.write("\n".join(f"bash {shlex.quote(name + '.sh')}" for *_, name in commands) + "\n")
+    return [*paths, path]

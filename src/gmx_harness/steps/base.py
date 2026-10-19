@@ -5,7 +5,7 @@ import enum
 import logging
 from abc import ABC, abstractmethod
 from importlib import resources
-from typing import Any
+from typing import Any, ClassVar
 
 from ..mdp import MDParameters
 from ..safety import validate_define, validate_name
@@ -30,9 +30,13 @@ class Calculation(ABC):
     To add your own step type, subclass this, give it a ``calculation_name``
     attribute and implement ``generate``; validation and writing are handled
     by ``build_plan``.
+
+    ``parallel_across_systems``: True for a short, CPU-only step (e.g. ``gmx solvate``) that the
+    tree's ``stebystep.sh`` may run for every system at once (``generate_stepbystep_runfile``).
     """
 
     calculation_name: str
+    parallel_across_systems: ClassVar[bool] = False
 
     @abstractmethod
     def generate(self) -> dict[str, str]:

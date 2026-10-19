@@ -218,36 +218,74 @@ def check_bond_lengths(gro: GroFile, bonds: Sequence[tuple[int, int]], lo: float
     return rep
 
 
-def check_contacts(gro: GroFile, natoms_per_mol: int, threshold: float = 0.1, where: str = "") -> Report:
-    """S008 (warn): atoms of different molecules closer than ``threshold`` nm (no PBC; cell list)."""
+def check_contacts(gro: GroFile, natoms_per_mol: int, threshold: float = 0.1, where: str = "", *,
+                   pbc: str = "") -> Report:
+    """
+    S008 (warn): atoms of different molecules closer than ``threshold`` nm (cell list).
+
+    ``pbc`` names the axes (any of ``"xyz"``) along which the minimum-image convention is applied
+    with the box of ``gro`` (rectangular only), so contacts through the periodic boundary of a
+    periodic fiber or sheet are found too; ``""`` (the default) ignores images.
+    """
     rep = Report()
     xyz = np.array([a.coordinate for a in gro.atoms])
     if len(xyz) == 0 or natoms_per_mol <= 0:
         return rep
+    axes = sorted({"xyz".index(c) for c in pbc.lower() if c in "xyz"})
+    if len(axes) != len(set(pbc.lower())):
+        raise ValueError(f"pbc must be made of x, y, z, got {pbc!r}")
+    if axes and gro.box_triclinic is not None and any(gro.box_triclinic):
+        raise NotImplementedError("check_contacts: minimum image for a triclinic box is not supported")
+    box = np.array([gro.box_x, gro.box_y, gro.box_z], dtype=float)
+    if any(box[k] <= 0 for k in axes):
+        raise ValueError(f"check_contacts: box edge along a periodic axis ({pbc}) is not positive")
     mol = np.arange(len(xyz)) // natoms_per_mol
-    cell = np.floor(xyz / threshold).astype(np.int64)
+    # along a periodic axis: wrap into the box and use whole cells (>= threshold) that tile it
+    ncell = [max(1, int(box[k] // threshold)) if k in axes else 0 for k in range(3)]
+    size = np.array([box[k] / ncell[k] if k in axes else threshold for k in range(3)])
+    wrapped = xyz.copy()
+    for k in axes:
+        wrapped[:, k] -= box[k] * np.floor(wrapped[:, k] / box[k])
+    cell = np.floor(wrapped / size).astype(np.int64)
+    for k in axes:
+        cell[:, k] %= ncell[k]
     buckets: dict[tuple[int, int, int], list[int]] = {}
     for i, c in enumerate(map(tuple, cell)):
         buckets.setdefault((int(c[0]), int(c[1]), int(c[2])), []).append(i)
-    close = 0
-    example = ""
-    for (cx, cy, cz), members in buckets.items():
+
+    def neighbours(c: tuple[int, int, int]) -> list[tuple[int, int, int]]:
+        out: list[tuple[int, int, int]] = []  # in a fixed order, each cell once (a small periodic axis wraps)
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 for dz in (-1, 0, 1):
-                    other = buckets.get((cx + dx, cy + dy, cz + dz))
-                    if not other:
-                        continue
-                    a = np.array(members)
-                    b = np.array(other)
-                    d = np.linalg.norm(xyz[a][:, None, :] - xyz[b][None, :, :], axis=2)
-                    mask = (d < threshold) & (mol[a][:, None] < mol[b][None, :])
-                    n = int(mask.sum())
-                    if n:
-                        close += n
-                        if not example:
-                            i, j = np.argwhere(mask)[0]
-                            example = f"atoms {a[i] + 1} and {b[j] + 1}: {d[i, j]:.3f} nm"
+                    n = [c[0] + dx, c[1] + dy, c[2] + dz]
+                    for k in axes:
+                        n[k] %= ncell[k]
+                    t = (n[0], n[1], n[2])
+                    if t not in out:
+                        out.append(t)
+        return out
+
+    close = 0
+    example = ""
+    for key, members in buckets.items():
+        for other_key in neighbours(key):
+            other = buckets.get(other_key)
+            if not other:
+                continue
+            a = np.array(members)
+            b = np.array(other)
+            dv = xyz[b][None, :, :] - xyz[a][:, None, :]
+            for ax in axes:
+                dv[..., ax] -= box[ax] * np.round(dv[..., ax] / box[ax])
+            d = np.linalg.norm(dv, axis=2)
+            mask = (d < threshold) & (mol[a][:, None] < mol[b][None, :])
+            n = int(mask.sum())
+            if n:
+                close += n
+                if not example:
+                    i, j = np.argwhere(mask)[0]
+                    example = f"atoms {a[i] + 1} and {b[j] + 1}: {d[i, j]:.3f} nm"
     if close:
         rep.warn("S008", f"{close} atom pairs of different molecules closer than {threshold} nm (e.g. {example}); "
                          "relax the structure before EM", where)

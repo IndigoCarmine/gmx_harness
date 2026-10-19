@@ -195,6 +195,32 @@ Also `pre_coordinate`, `make_rosette`, `make_half_rosette2`, `Assembly.translate
 `gmx_harness.build.rotation` / `align` (3x3 matrices; `GroFile.rotate` also accepts scipy `Rotation`).
 Ported from mylibs' `pre_coordinator` / `rosette_maker`; coordinates agree with them to ~1e-16 nm.
 
+For new scripts, build without touching coordinates: molecules move only as rigid bodies
+(`RigidTransform`, which refuses mirror images), every call returns a new object, and coordinates are
+read only as read-only copies for measuring (`GroFile.positions()`, `gmx_harness.geometry`).
+
+```python
+from gmx_harness import (Assembly, GroFile, RigidTransform, atom_types, find_intermolecular_pairs,
+                         min_distance, prepare_topology, save_assembly, write_intermolecular_bonds)
+
+T = RigidTransform.rotation("x", 90, degrees=True)                  # also translation/align/frame/fit, a @ b
+tape = Assembly.replicate(mono, [RigidTransform.translation([0.9 * k, 0, 0]) for k in range(16)])
+sheet = tape.transformed(T).repeat([0, 0.35, 0], 16)                # 16 layers, 0.35 nm apart
+box = (14.4, 5.6, float(sheet.extent()[2]) + 4.0)
+gro = sheet.centered_in_box(box).number_residues().to_gro(box=box, renumber=True)
+save_assembly("MOL_sheet", gro, len(mono), {"Sheet": range(256)})  # .gro, .pdb and .ndx
+
+pairs = find_intermolecular_pairs(gro, len(mono), donors=(10, 12), acceptors=(16, 14), cutoff=0.35)
+write_intermolecular_bonds("MOL_sheet_hbond.itp", pairs, length=0.29, k=1000)
+prepare_topology("MOL.top", "MOL_sheet_fixed.top", 256, "MOL_sheet_hbond.itp")
+print(min_distance(gro, len(mono), range(16), range(16, 32)))     # layer 1 vs layer 2, minimum image
+```
+
+`atom_types(top)` reads the atom types of a moleculetype, `save_mol` / `gro_from_mol` (extra
+`gmx-harness[rdkit]`) hand a monomer to a molecule editor and back, and `relax_systems`,
+`write_tree`, `PlanPreview.report` and `analysis.make_analyze_command_scripts` cover the loops a
+workspace script would otherwise repeat.
+
 
 
 ## Migrating from mylibs

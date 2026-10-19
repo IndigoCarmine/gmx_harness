@@ -23,6 +23,9 @@ dependencies = [
     "openpyxl",  # pandas .xlsx writer
 ]
 
+[project.optional-dependencies]
+rdkit = ["rdkit"]  # gmx_harness.io.mol (.mol <-> .gro)
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -34,6 +37,7 @@ packages = ["src/gmx_harness"]
 dev = [
     "mypy>=1.11",
     "pandas-stubs",
+    "rdkit",  # tests of gmx_harness.io.mol
 ]
 
 [tool.mypy]
@@ -42,7 +46,7 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["MDAnalysis", "MDAnalysis.*", "openmm", "openmm.*"]
+module = ["MDAnalysis", "MDAnalysis.*", "openmm", "openmm.*", "rdkit", "rdkit.*"]
 ignore_missing_imports = true
 
 # relax.py talks to OpenMM, which is untyped; checking it strictly only

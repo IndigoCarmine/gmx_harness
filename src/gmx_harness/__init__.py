@@ -37,9 +37,12 @@ from .build import (
     make_rosette2,
     pre_coordinate,
     precoordinate2,
+    save_assembly,
 )
+from .geometry import centroid, count_contacts, find_intermolecular_pairs, min_distance, plane_normal
 from .io import GroAtom, GroFile, XvgData, load_xvg, parse_xvg
-from .itp import generate_inermolecular_interactions
+from .io.mol import gro_from_mol, save_mol
+from .itp import format_intermolecular_bonds, generate_inermolecular_interactions, write_intermolecular_bonds
 from .index import format_ndx, molecule_atoms, write_ndx
 from .jobs import render_job_script, write_job_scripts
 from .mdp import MDParameters, MDPValidationError, ValidationIssue, validate_mdp_text
@@ -55,11 +58,14 @@ from .pipeline import (
     generate_batch_execution_script,
     generate_stepbystep_runfile,
     launch,
+    step_dir_names,
+    write_tree,
 )
 from .safety import UnsafeNameError, UnsafeOperationError
 from .scripts import gmx_command
 from .serialization import from_json, load_json, save_json, to_json
-from .topfile import add_conditional_include, prepare_topology, set_molecule_count
+from .topfile import add_conditional_include, atom_types, prepare_topology, set_molecule_count
+from .transform import RigidTransform
 from .steps import (
     AWH,
     EM,
@@ -112,6 +118,8 @@ __all__ = [
     "OverwriteType",
     "generate_stepbystep_runfile",
     "generate_batch_execution_script",
+    "step_dir_names",
+    "write_tree",
     "gmx_command",
     # serialization
     "save_json",
@@ -131,6 +139,14 @@ __all__ = [
     "make_rosette2",
     "make_half_rosette2",
     "make_oligorosette",
+    "RigidTransform",
+    "save_assembly",
+    # measuring built structures
+    "min_distance",
+    "count_contacts",
+    "find_intermolecular_pairs",
+    "centroid",
+    "plane_normal",
     # files
     "GroAtom",
     "GroFile",
@@ -138,6 +154,10 @@ __all__ = [
     "load_xvg",
     "parse_xvg",
     "generate_inermolecular_interactions",
+    "format_intermolecular_bonds",
+    "write_intermolecular_bonds",
+    "save_mol",
+    "gro_from_mol",
     # AI harness
     "install_skills",
     # index / topology preparation / batch jobs
@@ -145,6 +165,7 @@ __all__ = [
     "format_ndx",
     "write_ndx",
     "set_molecule_count",
+    "atom_types",
     "add_conditional_include",
     "prepare_topology",
     "render_job_script",
