@@ -1,4 +1,9 @@
-"""Solvent insertion steps (MCH via insert-molecules / solvate, SPC216 water)."""
+"""Solvent insertion steps (MCH via insert-molecules / solvate, SPC216 water).
+
+Every step here is safe to re-run: it starts from the topology it was handed (``topology.restore_original``),
+writes the new structure to ``solvated.gro`` and only renames it to output.gro -- the "step finished"
+marker of run.sh -- after the topology edits succeeded.
+"""
 
 import warnings
 from typing import override
@@ -14,6 +19,7 @@ from .base import Calculation, default_file_content, logger
 # Solvents that ship with a .gro/.itp in gmx_harness/data, with (mass g/mol, density g/cm^3).
 _SOLVENTS: dict[str, tuple[float, float]] = {"MCH": (98.186, 0.77)}
 _AVOGADRO_SCALED = 602.2  # N_A / 1e21: converts nm^3 / (cm^3/mol) into a molecule count
+_FINISH = "mv solvated.gro output.gro"
 
 
 def _check_solvent(solvent: str) -> str:
@@ -59,13 +65,15 @@ class Solvation(Calculation):
         s = self.solvent
         body = "\n".join(
             [
+                topology.restore_original(),
                 gmx_command(
                     "insert-molecules",
                     ["-f", "input.gro", "-ci", s, "-nmol", str(self.nmol), "-try", str(self.ntry),
-                     "-o", "output.gro"],
+                     "-o", "solvated.gro"],
                 )
                 + " 2>&1 | tee insert.log",
                 topology.add_molecules_from_log(s, "insert.log", include_itp=f"{s}.itp"),
+                _FINISH,
             ]
         )
         return {
@@ -98,11 +106,13 @@ class RuntimeSolvation(Calculation):
         mass, density = _SOLVENTS[s]
         body = "\n".join(
             [
+                topology.restore_original(),
                 "NMOL=" + topology.solvent_count("input.gro", mass, density, self.rate),
                 'echo "inserting $NMOL molecules"',
                 f'"$GMX" insert-molecules -f input.gro -ci {s}.gro -nmol "$NMOL" -try {self.ntry}'
-                " -o output.gro 2>&1 | tee insert.log",
+                " -o solvated.gro 2>&1 | tee insert.log",
                 topology.add_molecules_from_log(s, "insert.log", include_itp=f"{s}.itp"),
+                _FINISH,
             ]
         )
         return {
@@ -128,9 +138,11 @@ class SolvationSCP216(Calculation):
     def generate(self) -> dict[str, str]:
         body = "\n".join(
             [
+                topology.restore_original(),
                 ": > dummy.top  # empty topology for gmx solvate to report the added molecules in",
-                gmx_command("solvate", ["-cp", "input.gro", "-cs", "spc216.gro", "-o", "output.gro", "-p", "dummy.top"]),
+                gmx_command("solvate", ["-cp", "input.gro", "-cs", "spc216.gro", "-o", "solvated.gro", "-p", "dummy.top"]),
                 topology.add_molecules_from_dummy("dummy.top"),
+                _FINISH,
             ]
         )
         return {
@@ -158,16 +170,18 @@ class SolvationMCH(Calculation):
     def generate(self) -> dict[str, str]:
         body = "\n".join(
             [
+                topology.restore_original(),
                 ": > dummy.top  # empty topology for gmx solvate to report the added molecules in",
                 gmx_command(
                     "solvate",
-                    ["-cp", "input.gro", "-cs", "MCH_solventbox.gro", "-o", "output.gro", "-p", "dummy.top",
+                    ["-cp", "input.gro", "-cs", "MCH_solventbox.gro", "-o", "solvated.gro", "-p", "dummy.top",
                      "-scale", str(self.scale)],
                 ),
                 # two edits, like mylibs (top_mod.py then add_mchitp.py): topo_old.top ends up
                 # holding the topology after the molecule line was added
                 topology.add_molecules_from_dummy("dummy.top"),
                 topology.include_itp("MCH.itp"),
+                _FINISH,
             ]
         )
         return {

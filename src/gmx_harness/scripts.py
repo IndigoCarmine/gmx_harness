@@ -157,7 +157,9 @@ def step_run_script(is_last: bool) -> str:
         + "\n"
         + done
         + "\n"
-        + "if ls ./*.pdb >/dev/null 2>&1; then\n"
+        # step*.pdb are the frames mdrun dumps when it blows up (LINCS/SETTLE); other .pdb files
+        # (e.g. a PLUMED RMSD reference) are inputs
+        + "if ls ./step*.pdb >/dev/null 2>&1; then\n"
         + '    echo "this calculation has problems and this is already calculated."\n'
         + "    exit 1\nfi\n\n"
         + 'if [ -f "output.cpt" ] && [ -f "output.tpr" ]; then\n'

@@ -184,6 +184,14 @@ class TestBuildAndWrite(PipelineTestCase):
         with self.assertRaises(ValueError):
             MD(type=MDType.v_rescale_c_rescale, calculation_name="x", extra_files={"setting.mdp": ""}).generate()
 
+    def test_md_index_file(self) -> None:
+        md = MD(type=MDType.v_rescale_only_nvt, calculation_name="smd", index_file="index.ndx")
+        self.assertIn("-maxwarn 0 -n index.ndx\n", md.generate()["grommp.sh"])
+        plain = MD(type=MDType.v_rescale_only_nvt, calculation_name="md").generate()["grommp.sh"]
+        self.assertIn("-maxwarn 0\n", plain)
+        with self.assertRaises(ValueError):  # pydantic wraps the UnsafeNameError
+            MD(type=MDType.v_rescale_only_nvt, calculation_name="smd", index_file="../index.ndx")
+
     def test_scripts_are_machine_independent(self) -> None:
         plan = self.plan()
         for f in plan.files:
@@ -218,6 +226,14 @@ class TestSafety(PipelineTestCase):
             RawShellStep("raw", "rm -rf /")
         step = RawShellStep("raw", "cp input.gro output.gro", allow_unsafe=True)
         self.assertIn("WARNING", step.generate()["mdrun.sh"])
+
+    def test_validate_relpath(self) -> None:
+        from gmx_harness.safety import validate_relpath
+
+        self.assertEqual(validate_relpath("w00/01_umb/plumed.dat"), "w00/01_umb/plumed.dat")
+        for bad in ("../x", "a/../b", "/abs", "a//b", "a/", "a/b c", "a/$(x)", ".hidden/x"):
+            with self.assertRaises(UnsafeNameError, msg=bad):
+                validate_relpath(bad)
 
     def test_custom_step_cannot_escape(self) -> None:
         from gmx_harness import Calculation

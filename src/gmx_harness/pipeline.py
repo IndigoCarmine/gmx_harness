@@ -24,7 +24,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import __version__
-from .safety import UnsafeOperationError, ensure_deletable_root, ensure_within, validate_filename, validate_name
+from .safety import (
+    UnsafeOperationError,
+    ensure_deletable_root,
+    ensure_within,
+    validate_filename,
+    validate_name,
+    validate_relpath,
+)
 from .scripts import CARRY_DEFAULT, NOOP_GROMPP, copy_script, validate_carry, pipeline_run_script, step_run_script
 from .steps.base import Calculation
 
@@ -181,7 +188,7 @@ class Plan:
             elif overwrite is OverwritePolicy.SKIP_EXISTING:
                 skipped_dirs.add(s.dirname)
                 pv.skipped_steps.append(s.dirname)
-            elif any(d.glob("output.*")):  # REPLACE_GENERATED, but this step has already run
+            elif any(d.rglob("output.*")):  # REPLACE_GENERATED, but this step (or a Nested child) has already run
                 skipped_dirs.add(s.dirname)
                 pv.started_steps.append(s.dirname)
 
@@ -326,7 +333,8 @@ def build_plan(
             raise ValueError(f"{s.dirname}: generate() must return an mdrun.sh")
         generated.setdefault("grommp.sh", NOOP_GROMPP)
         for fname, content in generated.items():
-            validate_filename(fname, f"{s.dirname} file name")
+            # "sub/file" only comes from composite steps (Nested); every part is checked
+            validate_relpath(fname, f"{s.dirname} file name")
             if fname in _RESERVED:
                 raise ValueError(f"{s.dirname}: {fname} is reserved for gmx_harness")
             if not isinstance(content, str):

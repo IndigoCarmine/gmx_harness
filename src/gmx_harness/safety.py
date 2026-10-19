@@ -52,6 +52,15 @@ def validate_filename(name: str, what: str = "file name") -> str:
     return name
 
 
+def validate_relpath(rel: str, what: str = "file path") -> str:
+    """A relative path ``a/b/c`` whose every part is a bare file name (used by ``Nested`` sub-folders)."""
+    if not isinstance(rel, str):
+        raise UnsafeNameError(f"{what}={rel!r} is not a string")
+    for part in rel.split("/"):
+        validate_filename(part, what)
+    return rel
+
+
 def validate_define(define: str) -> str:
     if not isinstance(define, str) or not _SAFE_DEFINE.match(define):
         raise UnsafeNameError(

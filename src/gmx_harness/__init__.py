@@ -65,6 +65,7 @@ from .steps import (
     MartiniEM,
     MartiniMD,
     MDType,
+    Nested,
     RawShellStep,
     RemoveResidue,
     ResizeBox,
@@ -96,6 +97,7 @@ __all__ = [
     "AddFiles",
     "RawShellStep",
     "FileControl",
+    "Nested",
     # pipeline
     "build_plan",
     "Plan",

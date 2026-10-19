@@ -24,7 +24,7 @@ fix the step parameters, and regenerate (`OverwritePolicy.REPLACE_GENERATED`).
 | Job hit the time limit / GPU crash, `output.cpt` exists | Interrupted run | The human resubmits; `run.sh` continues from output.cpt (no grompp). For PLUMED runs RESTART is added automatically, but HILLS/COLVAR entries written after the checkpoint time must be trimmed by hand |
 | Need a longer run | nsteps reached | The human runs `bash extend.sh <ps>` in that step, then `run.sh` |
 | `ERROR: N_x finished without producing output.gro` | mdrun ended early (crash, walltime) | Look at output.log / the job log of that step |
-| Reports `this calculation has problems` | `*.pdb` files from an earlier failure remain | After fixing the cause, the **human** deletes the pdb files and reruns |
+| Reports `this calculation has problems` | `step*.pdb` files from an earlier failure remain | After fixing the cause, the **human** deletes the step*.pdb files and reruns |
 | `GROMACS not found (set GMX)` | gmx is not on PATH on the running machine | Load GROMACS (`module load` / `source GMXRC`) or set `GMX=/path/to/gmx_mpi` before running |
 
 ## After fixing
