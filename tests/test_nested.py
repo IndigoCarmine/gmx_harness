@@ -99,7 +99,9 @@ class TestNestedRuns(ScriptCase):
     def plan(self, root: Calculation, *more: Calculation) -> Path:
         (self.d / "start.gro").write_text(GRO)
         (self.d / "topo.top").write_text("; top")
-        build_plan([root, *more], self.d / "start.gro", self.d / "w", extra_inputs=[self.d / "topo.top"]).write()
+        # these tests are about the generated scripts; the design checks are covered in test_checks
+        build_plan([root, *more], self.d / "start.gro", self.d / "w", extra_inputs=[self.d / "topo.top"],
+                   checks=False).write()
         return self.d / "w"
 
     def run_all(self, wd: Path) -> tuple[int, str]:

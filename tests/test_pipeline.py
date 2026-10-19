@@ -31,7 +31,8 @@ class PipelineTestCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
         (self.tmp / "start.gro").write_text(GRO)
-        (self.tmp / "topo.top").write_text("[ system ]\nx\n[ molecules ]\nMOL 1\n")
+        (self.tmp / "topo.top").write_text("[ moleculetype ]\nMOL 3\n[ atoms ]\n1 c 1 MOL C 1 0 12.0\n"
+                                           "[ system ]\nx\n[ molecules ]\nMOL 1\n")
         self.wd = self.tmp / "work"
         # input() must never be called by the library
         patcher = mock.patch.object(builtins, "input", side_effect=AssertionError("input() called"))
@@ -227,13 +228,13 @@ class TestSafety(PipelineTestCase):
         step = RawShellStep("raw", "cp input.gro output.gro", allow_unsafe=True)
         self.assertIn("WARNING", step.generate()["mdrun.sh"])
 
-    def test_validate_relpath(self) -> None:
-        from gmx_harness.safety import validate_relpath
+    def test_validate_script_relpath(self) -> None:
+        from gmx_harness.safety import validate_script_relpath
 
-        self.assertEqual(validate_relpath("w00/01_umb/plumed.dat"), "w00/01_umb/plumed.dat")
+        self.assertEqual(validate_script_relpath("w00/01_umb/plumed.dat"), "w00/01_umb/plumed.dat")
         for bad in ("../x", "a/../b", "/abs", "a//b", "a/", "a/b c", "a/$(x)", ".hidden/x"):
             with self.assertRaises(UnsafeNameError, msg=bad):
-                validate_relpath(bad)
+                validate_script_relpath(bad)
 
     def test_custom_step_cannot_escape(self) -> None:
         from gmx_harness import Calculation
