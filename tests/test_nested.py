@@ -22,6 +22,8 @@ from gmx_harness import (
     to_json,
 )
 
+from gmx_harness.pipeline import Plan
+
 from .test_workflow_features import GRO, ScriptCase
 
 
@@ -183,6 +185,58 @@ class TestNestedRuns(ScriptCase):
         pv = plan.preview(OverwritePolicy.REPLACE_GENERATED)
         self.assertEqual(pv.started_steps, ["0_job"])
         self.assertNotIn("0_job/a/mdrun.sh", pv.overwrite)
+
+
+TOP = "[ moleculetype ]\nMOL 3\n[ atoms ]\n1 c 1 MOL C 1 0 12.0\n[ system ]\nx\n[ molecules ]\nMOL 1\n"
+
+
+class TestNestedChecksAndPreflight(ScriptCase):
+    def build(self, *steps: Calculation, **kw: object) -> Plan:
+        (self.d / "start.gro").write_text(GRO)
+        (self.d / "topo.top").write_text(TOP)
+        return build_plan(list(steps), self.d / "start.gro", self.d / "w", extra_inputs=[self.d / "topo.top"],
+                          **kw)  # type: ignore[arg-type]
+
+    def test_checks_see_nested_children(self) -> None:
+        md = MD(type=MDType.v_rescale_only_nvt, calculation_name="umb", maxwarn=1, index_file="index.ndx")
+        plan = self.build(Nested("job", [child("smd"), Nested("w00", [("01_umb", md)])]))
+        found = {(i.code, i.where) for i in plan.report.issues}
+        self.assertIn(("L006", "0_job/smd"), found)  # a raw shell step cannot hide inside a Nested step
+        self.assertIn(("L004", "0_job/w00/01_umb"), found)
+        self.assertIn(("L002", "0_job/w00/01_umb"), found)  # index.ndx is planned nowhere above it
+        self.assertFalse(plan.preview().ok)
+        waived = self.build(Nested("job", [child("smd"), Nested("w00", [("01_umb", md)])]),
+                            waive={"L006@0_job/*": "test", "L004@0_job/w00/*": "test", "L002": "test"})
+        self.assertTrue(waived.preview().ok, waived.report)
+
+    def test_index_from_a_folder_above_is_accepted(self) -> None:
+        md = MD(type=MDType.v_rescale_only_nvt, calculation_name="umb", index_file="index.ndx")
+        plan = self.build(Nested("job", [AddFiles("ndx", {"x.itp": "; x"}), ("01_umb", md)]))
+        self.assertIn(("L002", "0_job/01_umb"), {(i.code, i.where) for i in plan.report.issues})
+        plan = self.build(AddFiles("ndx", {"index.ndx": "[ a ]\n1\n"}), Nested("job", [("01_umb", md)]))
+        self.assertNotIn("L002", {i.code for i in plan.report.issues})
+
+    def test_preflight_reaches_every_child(self) -> None:
+        tree = Nested("job", [child("a"), Nested("w00", [("00_relax", child("relax"))], chain=True)])
+        plan = self.build(tree, require_preflight=True, checks=False)
+        self.assertIn("cd .. && sha256sum", plan.file("0_job/run.sh"))
+        self.assertIn("cd ../.. && sha256sum", plan.file("0_job/a/run.sh"))
+        self.assertIn("cd ../.. && sha256sum", plan.file("0_job/w00/run.sh"))
+        self.assertIn("cd ../../.. && sha256sum", plan.file("0_job/w00/00_relax/run.sh"))
+        plain = build_plan([tree], self.d / "start.gro", self.d / "x", checks=False)
+        self.assertFalse(any("preflight" in f.content.decode() for f in plain.files if f.relpath.endswith("run.sh")
+                             and f.relpath != "run.sh"))
+        with self.assertRaises(ValueError):
+            tree.generate(preflight_root="../x")
+
+    def test_child_run_refuses_without_preflight(self) -> None:
+        plan = self.build(Nested("job", [child("a")], input_to="all"), require_preflight=True, checks=False)
+        plan.write()
+        a = self.d / "w/0_job/a"
+        r = self.bash((a / "run.sh").read_text(), a)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("preflight.ok is missing", r.stderr)
+        self.assertFalse((a / "output.gro").exists())
 
 
 @unittest.skipIf(shutil.which("bash") is None, "bash not available")

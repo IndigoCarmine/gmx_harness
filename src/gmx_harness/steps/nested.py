@@ -13,6 +13,7 @@ so ``bash run.sh`` inside any folder of the tree finishes that folder. The step 
 done (has ``output.gro``) when all of its children are.
 """
 
+import re
 import shlex
 from collections.abc import Sequence
 from typing import override
@@ -26,6 +27,7 @@ INPUT_TO = ("first", "all", "none")
 _RESERVED = {"run.sh", "copy.sh"}
 
 Child = Calculation | tuple[str, Calculation]
+_UP = re.compile(r"^\.\.(/\.\.)*$")
 
 
 class Nested(Calculation):
@@ -97,11 +99,16 @@ class Nested(Calculation):
         self.parallel = parallel
         self.sequential_first = sequential_first
 
-    def _child_files(self) -> dict[str, str]:
+    def _child_files(self, preflight_root: str | None) -> dict[str, str]:
         files: dict[str, str] = {}
         n = len(self.children)
+        # the working directory seen from a child folder (one level deeper than this step)
+        root = None if preflight_root is None else f"{preflight_root}/.."
         for i, (sub, child) in enumerate(self.children):
-            generated = child.generate()
+            if isinstance(child, Nested):
+                generated = child.generate(preflight_root=root)
+            else:
+                generated = child.generate()
             if "mdrun.sh" not in generated:
                 raise ValueError(f"{self.calculation_name}/{sub}: generate() must return an mdrun.sh")
             generated.setdefault("grommp.sh", NOOP_GROMPP)
@@ -110,7 +117,8 @@ class Nested(Calculation):
                     raise ValueError(f"{self.calculation_name}/{sub}: {fname} is reserved for gmx_harness")
                 files[f"{sub}/{fname}"] = content
             nxt = self.children[i + 1][0] if self.chain and i + 1 < n else None
-            files[f"{sub}/run.sh"] = step_run_script(is_last=nxt is None)
+            files[f"{sub}/run.sh"] = (step_run_script(is_last=nxt is None) if root is None else
+                                      step_run_script(is_last=nxt is None, require_preflight=True, preflight_root=root))
             if nxt is not None:
                 files[f"{sub}/copy.sh"] = copy_script(sub, nxt, nxt, self.carry)
         return files
@@ -130,8 +138,15 @@ class Nested(Calculation):
         return lines + ["fi"]
 
     @override
-    def generate(self) -> dict[str, str]:
-        files = self._child_files()
+    def generate(self, *, preflight_root: str | None = None) -> dict[str, str]:
+        """
+        The step's files. ``preflight_root`` (the working directory relative to this step, e.g. ``..``;
+        set by ``build_plan(require_preflight=True)``) makes every child's run.sh check ``preflight.ok``
+        there too, so running ``bash run.sh`` in a child folder cannot skip the preflight.
+        """
+        if preflight_root is not None and not _UP.match(preflight_root):
+            raise ValueError(f"preflight_root must be '..', '../..', ...; got {preflight_root!r}")
+        files = self._child_files(preflight_root)
         nseq = self.sequential_first if self.parallel > 1 else len(self.children)
         me = shlex.quote(self.calculation_name)
         lines = ["T_ALL=$(date +%s)"]

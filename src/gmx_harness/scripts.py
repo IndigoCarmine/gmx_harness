@@ -168,8 +168,11 @@ def preflight_guard(where: str = ".") -> str:
     )
 
 
-def step_run_script(is_last: bool, require_preflight: bool = False) -> str:
-    """``run.sh`` inside a step directory (with ``require_preflight``: checks ``../preflight.ok`` first)."""
+def step_run_script(is_last: bool, require_preflight: bool = False, preflight_root: str = "..") -> str:
+    """
+    ``run.sh`` inside a step directory (with ``require_preflight``: checks ``<preflight_root>/preflight.ok``
+    first; ``preflight_root`` is the working directory relative to the step, deeper for ``Nested`` children).
+    """
     done = 'if [ -f "output.gro" ]; then\n    echo "output.gro already exists. This calculation is finished."\n'
     done += "    . ./copy.sh\n" if not is_last else ""
     done += "    exit 0\nfi\n"
@@ -178,7 +181,7 @@ def step_run_script(is_last: bool, require_preflight: bool = False) -> str:
         + FREEZE_GUARD
         + "\n"
         + done
-        + ("\n" + preflight_guard("..") if require_preflight else "")
+        + ("\n" + preflight_guard(preflight_root) if require_preflight else "")
         + "\n"
         # step*.pdb are the frames mdrun dumps when it blows up (LINCS/SETTLE); other .pdb files
         # (e.g. a PLUMED RMSD reference) are inputs

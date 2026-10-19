@@ -78,6 +78,11 @@ class TestTree(unittest.TestCase):
                 self.assertNotIn("tilt:", text)
                 self.assertNotIn("UPPER_WALLS", text)
             self.assertIn("python3 umbrella_node.py extract", plan.file("5_umbrella/extract/mdrun.sh"))
+            # the checks look inside 5_umbrella; with the example's own waiver only the maxwarn=1 errors are left
+            waived = build_plan(calcs, Path(d) / "s.gro", Path(d) / "x", waive=umbrella.WAIVE)
+            errors = {i.code for i in waived.report.errors(umbrella.WAIVE)}
+            self.assertEqual(errors, {"L004"})
+            self.assertIn("5_umbrella/w00/01_umb", {i.where for i in waived.report.issues if i.code == "L004"})
 
     def test_windows_only_with_wall(self) -> None:
         import dataclasses

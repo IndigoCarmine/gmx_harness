@@ -12,8 +12,12 @@ CONFIG.json (paths relative to the config file)::
       "itps": ["system/MOL.itp", ...],            included by the topology
       "plumed_defs": "plumed_defs.dat",           CV definitions; must define `theta` and every CV named below
       "rigid_atoms": "1201-1230,1251-1280",       upper-block atoms held rigid in the steered MD ("" = none)
-      "settings": {"lower": [1, 1200], "upper": [1201, 2400], ...}   UmbrellaSettings fields
+      "settings": {"lower": [1, 1200], "upper": [1201, 2400], ...},  UmbrellaSettings fields
+      "waive": {"L004": "the grompp warning ... is expected"}        design-check waivers (optional)
     }
+
+The MD steps run grompp with maxwarn=1, which the design checks report as L004 errors: put the
+grompp warning you expect into "waive" (or a narrower "L004@<step>" key) after checking it.
 
 --windows-only START_DIR: only the windows, each from START_DIR/wNN/input.gro (e.g. the windows of an earlier
 umbrella job), with the topology and *.itp of START_DIR/w00 (the solvated system).
@@ -47,20 +51,23 @@ def main() -> None:
     if a.test:
         s = s.test_mode()
     defs = (base / cfg["plumed_defs"]).read_text()
+    waive = {**umbrella.WAIVE, **cfg.get("waive", {})}
 
     if a.windows_only:
         src = a.windows_only
         frames = [src / f"w{i:02d}" / "input.gro" for i in range(s.n_win)]
         plan = build_plan(umbrella.build_windows_only(s, defs), frames[0], a.out,
                           extra_inputs={"topo.top": src / "w00" / "topo.top",
-                                        **{p.name: p for p in sorted((src / "w00").glob("*.itp"))}})
+                                        **{p.name: p for p in sorted((src / "w00").glob("*.itp"))}},
+                          waive=waive)
         step = plan.steps[0].dirname
         plan.files += [PlannedFile(f"{step}/w{i:02d}/input.gro", f.read_bytes()) for i, f in enumerate(frames)]
     else:
         gro = base / cfg["solute_gro"]
         plan = build_plan(umbrella.build_umbrella(s, defs, GroFile.from_gro_file(str(gro))), gro, a.out,
                           extra_inputs={"topo.top": base / cfg["topology"],
-                                        **{Path(p).name: base / p for p in cfg.get("itps", [])}})
+                                        **{Path(p).name: base / p for p in cfg.get("itps", [])}},
+                          waive=waive)
     policy = OverwritePolicy.REPLACE_GENERATED if a.replace else OverwritePolicy.ERROR
     pv = plan.preview(policy)
     if not pv.ok:

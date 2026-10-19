@@ -36,6 +36,8 @@ from gmx_harness.scripts import NOOP_GROMPP, body_script
 
 HERE = Path(__file__).resolve().parent
 NODE = HERE / "node"
+# design-check waivers the protocol itself needs (pass to build_plan(waive=...))
+WAIVE = {"L002@*/smd": "index.ndx is written by umbrella_node.py smd-prep in grommp.sh, before grompp"}
 
 
 @dataclasses.dataclass

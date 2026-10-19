@@ -37,6 +37,7 @@ from .safety import (
 )
 from .scripts import CARRY_DEFAULT, NOOP_GROMPP, copy_script, validate_carry, pipeline_run_script, step_run_script
 from .steps.base import Calculation
+from .steps.nested import Nested
 
 MANIFEST = ".gmx_harness_manifest.json"
 # per-step scripts that connect a step to its neighbours
@@ -359,7 +360,8 @@ def build_plan(
     files: list[PlannedFile] = []
 
     for i, s in enumerate(steps):
-        generated = s.calculation.generate()
+        c = s.calculation
+        generated = c.generate(preflight_root="..") if require_preflight and isinstance(c, Nested) else c.generate()
         if "mdrun.sh" not in generated:
             raise ValueError(f"{s.dirname}: generate() must return an mdrun.sh")
         generated.setdefault("grommp.sh", NOOP_GROMPP)

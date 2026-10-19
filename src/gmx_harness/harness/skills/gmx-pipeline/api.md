@@ -184,6 +184,9 @@ Elapsed seconds per child go to ``timing.log``. Children that already have ``out
 skipped, so re-running the step resumes it. When all children are done, ``output.gro`` is the last
 child's ``output.gro`` with ``chain``, otherwise a copy of ``input.gro``.
 
+Methods:
+- `generate(*, preflight_root: str | None = None) -> dict[str, str]` - The step's files. ``preflight_root`` (the working directory relative to this step, e.g. ``..``;
+
 ### `build_plan(calculations: list[Calculation], input_gro: str | PathLike[str], working_dir: str | PathLike[str], *, extra_inputs: Sequence[str | PathLike[str]] | Mapping[str, str | PathLike[str]] | None = None, step_inputs: Mapping[str, Sequence[str | PathLike[str]] | Mapping[str, str | PathLike[str]]] | None = None, carry: Sequence[str] = ('*.top', '*.itp'), checks: bool = True, waive: Mapping[str, str] | None = None, require_preflight: bool = False) -> Plan`
 Plan a pipeline: ``working_dir/0_<name>/``, ``1_<name>/``, ... plus a top-level ``run.sh``.
 

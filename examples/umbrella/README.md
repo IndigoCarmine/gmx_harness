@@ -48,6 +48,11 @@ upper-block atoms held rigid. The defaults are only a starting point: choose `ka
 spacing so that neighbouring windows overlap, and the sweep speed (`smd_ns`, `kappa_smd`) so that θ follows
 the steering centre closely (`extract` warns when a window frame is more than 1° off its target).
 
+The MD steps use `maxwarn=1`, which the design checks of `build_plan` report as L004 errors (also inside
+`5_umbrella`); `write` refuses until you waive them in `"waive"` with the grompp warning you expect, e.g.
+`{"L004": "..."}` or `{"L004@5_umbrella/*": "..."}`. The `-n index.ndx` of `smd` (written on the node by
+`smd-prep`) is waived by the example itself (`umbrella.WAIVE`).
+
 ### `plumed_defs.dat`
 
 Your CV definitions (UNITS, WHOLEMOLECULES, the CVs and what they depend on). It must define:
