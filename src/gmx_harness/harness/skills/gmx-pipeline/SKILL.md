@@ -39,7 +39,7 @@ description: Use gmx_harness to design a GROMACS MD pipeline (EM → NVT → NPT
 - `calculation_name` may only use `[A-Za-z0-9_.+-]` and must be unique.
 - Any mdp option can be added or overridden with `additional_mdp_parameters={"key": value}`. It is checked when the files are generated.
 - Write `defines` without `-D` (`["POSRES"]`).
-- To show the design as a flowchart: `to_drawio(steps)` returns draw.io XML; `save_drawio(steps, "workflow.drawio")` writes it (never overwrites unless `overwrite=True`). Readable define names via `define_labels={"POSRES": "Position Restraint"}`.
+- To show the design as a flowchart: `to_drawio(steps)` returns draw.io XML; `save_drawio(steps, "workflow.drawio")` writes it (never overwrites unless `overwrite=True`). Readable define names via `define_labels={"POSRES": "Position Restraint"}`. `Nested` steps are drawn as frames around their children; identical consecutive children (umbrella windows) become one `×N` box unless `collapse_repeats=False`.
 - PLUMED and other mdrun options: `MD(..., mdrun_args=["-plumed", "plumed.dat"], extra_files={"plumed.dat": text})`.
 - PLUMED input from a template with atom selections by fragment label: `gmx_harness.preprocess_file("metad.plumed.in", Layout(MoleculeLabels.from_gro(labeled_gro), nmol, nros), defines)` (the template's file path) (`#define/#for/#include`, `{expr}`, `@sel(disk=, mol=, res=, name=, heavy=)`). Show the expanded text to the human before using it.
 - Inputs: `extra_inputs={"topo.top": "MOL_fixed.top", "MOL_hbond.itp": "..."}` (first step, renaming allowed); `step_inputs={"metad": {"index.ndx": "MOL.ndx"}}` for a later step.

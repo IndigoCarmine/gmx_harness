@@ -271,23 +271,28 @@ Serialize steps to a JSON string (parameters left at their default are omitted).
 Rebuild steps from ``to_json`` output. ``RawShellStep`` entries contain
 unchecked shell code and need ``allow_unsafe=True``; that flag is never stored.
 
-### `to_drawio(calculations: Sequence[Calculation], *, title: str | None = 'MD Calculation Workflow', per_column: int = 3, define_labels: Mapping[str, str] | None = None, none_label: str = 'none', show_names: bool = False) -> str`
+### `to_drawio(calculations: Sequence[Calculation], *, title: str | None = 'MD Calculation Workflow', per_column: int = 3, define_labels: Mapping[str, str] | None = None, none_label: str = 'none', show_names: bool = False, collapse_repeats: bool = True) -> str`
 A draw.io file (uncompressed ``<mxfile>`` XML) drawing the pipeline as a flowchart.
 
-Cards: energy minimization blue, MD yellow, AWH/BAR purple, solvation green,
-file steps gray. They run top to bottom in columns of ``per_column`` and are
-joined by arrows. Open the result in draw.io / diagrams.net to edit it.
+Cards: energy minimization blue, MD yellow, AWH/BAR purple, solvation green, file steps gray. They run
+top to bottom in columns of ``per_column`` and are joined by arrows. A ``Nested`` step is a gray frame
+holding its children: stacked top to bottom (solid arrows with ``chain``, dashed when they only run in
+order), and with ``parallel`` > 1 the children after ``sequential_first`` side by side. Open the result
+in draw.io / diagrams.net to edit it.
 
 Args:
     calculations: the pipeline steps, as given to ``build_plan``.
     title: text above the chart (None: no title).
-    per_column: cards per column before wrapping to the next column.
+    per_column: top-level boxes per column before wrapping to the next column.
     define_labels: readable names for ``define`` flags,
         e.g. ``{"INTERMOLECULAR": "Intermolecular Interaction"}``.
     none_label: shown when a step has no defines (e.g. ``"なし"``).
-    show_names: append each step's ``calculation_name`` to its heading.
+    show_names: append each step's ``calculation_name`` (sub-folder name inside a Nested step)
+        to its heading.
+    collapse_repeats: draw consecutive children of a Nested step that would look the same
+        (e.g. umbrella windows ``w00`` … ``w19``) as one box marked ``×N``.
 
-### `save_drawio(calculations: Sequence[Calculation], filepath: str | PathLike[str], *, overwrite: bool = False, title: str | None = 'MD Calculation Workflow', per_column: int = 3, define_labels: Mapping[str, str] | None = None, none_label: str = 'none', show_names: bool = False) -> None`
+### `save_drawio(calculations: Sequence[Calculation], filepath: str | PathLike[str], *, overwrite: bool = False, title: str | None = 'MD Calculation Workflow', per_column: int = 3, define_labels: Mapping[str, str] | None = None, none_label: str = 'none', show_names: bool = False, collapse_repeats: bool = True) -> None`
 Write ``to_drawio(...)`` to ``filepath`` (``.drawio``). An existing file is kept unless ``overwrite=True``.
 
 ### class `MDParameters(data: dict[str, str | int | float] | None = None, ignore_deepcopy: bool = False)`

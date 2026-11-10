@@ -71,6 +71,8 @@ xml = to_drawio(steps, per_column=3, show_names=True)   # 文字列を返すだ�
 
 ステップごとに 1 枚のカード（EM 青、MD 黄、AWH/BAR 紫、溶媒和 緑、ファイル操作 灰）を描き、各ステップが生成する
 `setting.mdp` から nsteps、emtol またはシミュレーション時間（ns）、温度、defines を読んで表示する。
+`Nested` ステップは、子ステップのカードを囲む灰色の枠として描く（縦に並べる。`parallel` のときは `sequential_first` より後の子を横に並べる）。
+同じ見た目になる連続した子（PLUMED 入力だけが違うアンブレラの窓など）は、`[w00 … w19] ×20` のように 1 つにまとめる（`collapse_repeats=False` で全部描く）。
 draw.io / diagrams.net で開いて編集できる。`save_drawio` は既存ファイルを上書きしない（`overwrite=True` で上書き）。
 
 実行: `cd work && bash run.sh`。ステップのディレクトリに `freeze` ファイルを置くと、そのステップは止まります。
