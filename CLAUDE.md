@@ -13,6 +13,8 @@
   place, made read-only) and never changed afterwards; besides that it only rewrites `tree.json`, creates and removes
   its `.lock`, and removes its own `.incoming-<id>/` when a store fails. `export` only creates a new directory
   (`DEST/<tree>/<system>`, via a temporary sibling it renames) and tree files that do not exist yet.
+  Exception: `save_json` and `save_drawio` write the one file the caller names; `save_drawio` refuses an existing
+  file unless `overwrite=True`.
 - Never call `input()` or prompt interactively. Destructive or unchecked operations need an explicit flag (`allow_unsafe` / `confirm` / `force_modified`).
 - Do not lose flexibility: keep escape hatches such as `additional_mdp_parameters`, `strict_mdp=False`, `RawShellStep`, and subclassing `Calculation`.
 - Generated scripts must run with only GROMACS, bash and POSIX awk on the target machine (no Python there). Runtime topology edits live in `topology.py` as bash/awk snippets; pass values via environment variables, never splice them into awk code.
