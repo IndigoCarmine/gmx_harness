@@ -59,6 +59,20 @@ work/
   2_npt/  ...
 ```
 
+### ワークフロー図（draw.io）
+
+```python
+from gmx_harness import save_drawio, to_drawio
+
+save_drawio(steps, "workflow.drawio",
+            define_labels={"POSRES": "Position Restraint"}, none_label="なし")
+xml = to_drawio(steps, per_column=3, show_names=True)   # 文字列を返すだけで書き込まない
+```
+
+ステップごとに 1 枚のカード（EM 青、MD 黄、AWH/BAR 紫、溶媒和 緑、ファイル操作 灰）を描き、各ステップが生成する
+`setting.mdp` から nsteps、emtol またはシミュレーション時間（ns）、温度、defines を読んで表示する。
+draw.io / diagrams.net で開いて編集できる。`save_drawio` は既存ファイルを上書きしない（`overwrite=True` で上書き）。
+
 実行: `cd work && bash run.sh`。ステップのディレクトリに `freeze` ファイルを置くと、そのステップは止まります。
 
 再実行・続きからの実行:
@@ -91,6 +105,7 @@ GROMACS 以外にスクリプトが必要とするのは bash と awk だけで�
 | `Solvation`, `SolvationMCH`, `SolvationSCP216`, `RuntimeSolvation`（非推奨） | 溶媒和 |
 | `RemoveResidue`, `ResizeBox`, `AddFiles` | 型付きのファイル操作 |
 | `RawShellStep`（`allow_unsafe=True` が必要） | 任意の bash |
+| `Nested` | 子ステップをサブフォルダーに置く（直列につなぐ、または独立に・並列でも走らせる） |
 
 そのほか: `MDParameters`（mdp の編集と検証）、`GroFile`（.gro/.ndx/.xyz/.pdb）、`load_xvg`、
 `generate_inermolecular_interactions`、`gmx_harness.relax.relax`（OpenMM）、`gmx_harness.analysis`（MDAnalysis）。
@@ -121,6 +136,23 @@ metad = MD(type=MDType.v_rescale_c_rescale, calculation_name="metad", gen_vel="n
 テンプレートは PLUMED の入力に `#define` / `#for v in a..b` / `#endfor` / `#include`、`{式}`、
 `@sel(disk=, mol=, res=, name=, heavy=)`（選んだ断片の原子範囲）を加えたものです。式はサンドボックス内で評価され
 （`__` で始まる名前・lambda・import は不可）、`#include` はテンプレートのディレクトリの外を読めません。
+
+### 入れ子のステップ（`Nested`）
+
+```python
+from gmx_harness import Nested
+
+windows = [Nested(f"w{i:02d}", [("00_relax", relax[i]), ("01_umb", umb[i])], chain=True) for i in range(20)]
+umbrella = Nested("umbrella", [("smd", smd), ("extract", extract), *((w.name, w) for w in windows)],
+                  broadcast=True, parallel=4, sequential_first=2)
+```
+
+`Nested` は子ステップをそれぞれサブフォルダーに置き、いつもの `run.sh`（`chain=True` なら `copy.sh` も）を付けます。
+どの階層でも `bash run.sh` でそのフォルダーが完結し、再実行すると続きから走ります。`input_to` はフォルダーの
+`input.gro`（とトポロジー）をどの子に渡すか、`broadcast` はトポロジーを全部の子に配るかを決めます。`parallel=P` で
+子を P 本ずつ走らせ、`OMP_NUM_THREADS` を分け合います（失敗は `failed.txt`、所要時間は `timing.log`）。子にまた
+`Nested` を置けます。steered MD・窓の切り出し・PLUMED 下のアンブレラ窓までの完全な例は
+[`examples/umbrella`](examples/umbrella/README.md) にあります。
 
 ### 設計チェック
 

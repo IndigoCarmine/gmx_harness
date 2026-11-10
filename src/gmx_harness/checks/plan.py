@@ -1,15 +1,26 @@
 """Checks of a planned pipeline (``Plan``), run by ``build_plan(checks=True)``."""
 
 import shlex
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 from ..io.gro import GroFile
+from ..steps.base import Calculation
+from ..steps.nested import Nested
 from .plumed import check_plumed, parse_plumed
 from .report import Report
 from .structure import check_topology
 
 if TYPE_CHECKING:
     from ..pipeline import Plan
+
+
+def _walk(calc: Calculation, where: str) -> Iterator[tuple[Calculation, str]]:
+    """``calc`` and, for a ``Nested`` step, every child below it, with its directory."""
+    yield calc, where
+    if isinstance(calc, Nested):
+        for sub, child in calc.children:
+            yield from _walk(child, f"{where}/{sub}")
 
 
 def check_plan(plan: "Plan") -> Report:
@@ -34,9 +45,7 @@ def check_plan(plan: "Plan") -> Report:
                 rep.add(code, i.level, i.message, i.where)
 
     carried_ndx = "index.ndx" in step0
-    for s in plan.steps:
-        c = s.calculation
-        name = s.dirname
+    for c, name in (pair for s in plan.steps for pair in _walk(s.calculation, s.dirname)):
         maxwarn = int(getattr(c, "maxwarn", 0) or 0)
         if maxwarn > 0:
             rep.error("L004", f"maxwarn={maxwarn} (grompp warnings are ignored); fix the warning or waive L004 "
@@ -49,7 +58,9 @@ def check_plan(plan: "Plan") -> Report:
         argv = next((shlex.split(ln) for ln in grompp.splitlines() if " grompp " in ln), [])
         if "-n" in argv[:-1]:
             idx = argv[argv.index("-n") + 1]
-            if f"{name}/{idx}" not in files and not (carried_ndx and idx == "index.ndx"):
+            # a Nested child may get it from a folder above it (input_to / broadcast / chain carry)
+            parents = [name.rsplit("/", k)[0] for k in range(name.count("/") + 1)]
+            if all(f"{d}/{idx}" not in files for d in parents) and not (carried_ndx and idx == "index.ndx"):
                 rep.error("L002", f"grompp uses -n {idx} but no {idx} is planned for this step", name)
 
         plumed = getattr(c, "plumed", None) or (getattr(c, "extra_files", {}) or {}).get("plumed.dat")

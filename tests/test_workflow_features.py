@@ -10,6 +10,7 @@ from pathlib import Path
 from gmx_harness import (
     MD,
     MDType,
+    SolvationMCH,
     UnsafeNameError,
     add_conditional_include,
     build_plan,
@@ -97,6 +98,17 @@ class TestRestartAndHandOver(ScriptCase):
         self.bash(step_run_script(is_last=False), a)
         self.assertEqual((b / "topo.top").read_text(), "vacuum")  # an unfinished next step does get the files
 
+    def test_only_crash_dumps_stop_a_step(self) -> None:
+        d = self.step_dir("1_smd")
+        (d / "ref_block.pdb").write_text("ATOM\n")  # an input (PLUMED RMSD reference)
+        r = self.bash(step_run_script(is_last=True), d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        (d / "output.gro").unlink()
+        (d / "step1234b_n2.pdb").write_text("ATOM\n")  # what mdrun dumps when it blows up
+        r = self.bash(step_run_script(is_last=True), d)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("this calculation has problems", r.stdout)
+
     def test_extend(self) -> None:
         d = self.d / "6_md"
         d.mkdir()
@@ -129,6 +141,46 @@ class TestRestartAndHandOver(ScriptCase):
         for bad in (["../x"], ["*.top; rm -rf ~"], ["a b"]):
             with self.assertRaises(UnsafeNameError):
                 build_plan(steps, self._gro(), self.d / "w", carry=bad)
+
+
+# gmx solvate stand-in: writes the -o structure and reports 5 MCH in the -p topology
+FAKE_SOLVATE = """#!/bin/bash
+prev=""
+for a in "$@"; do
+    if [ "$prev" = "-o" ]; then echo solvated > "$a"; fi
+    if [ "$prev" = "-p" ]; then printf 'MCH  5\\n' >> "$a"; fi
+    prev="$a"
+done
+"""
+
+
+class TestSolvationRerun(ScriptCase):
+    TOP = '#include "MOL.itp"\n\n[ system ]\nx\n\n[ molecules ]\nMOL  10\n'
+
+    def test_mch_twice_adds_the_solvent_once(self) -> None:
+        fake = self.d / "fakesolvate"
+        fake.write_bytes(FAKE_SOLVATE.encode())
+        fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+        self.env["GMX"] = fake.as_posix()
+        d = self.d / "1_solv"
+        d.mkdir()
+        (d / "topo.top").write_text(self.TOP)
+        (d / "input.gro").write_text(GRO)
+        mdrun = SolvationMCH("solv").generate()["mdrun.sh"]
+        for _ in range(2):  # e.g. re-run after output.gro was removed
+            r = self.bash(mdrun, d)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        top = (d / "topo.top").read_text()
+        self.assertEqual(top.count("MCH  5"), 1, top)
+        self.assertEqual(top.count('#include "MCH.itp"'), 1, top)
+        self.assertEqual((d / "topo.top.orig").read_text(), self.TOP)
+        self.assertEqual((d / "output.gro").read_text().strip(), "solvated")
+        self.assertFalse((d / "solvated.gro").exists())
+
+    def test_output_gro_only_after_the_topology_edit(self) -> None:
+        mdrun = SolvationMCH("solv").generate()["mdrun.sh"]
+        self.assertIn("-o solvated.gro", mdrun)
+        self.assertTrue(mdrun.rstrip().endswith("mv solvated.gro output.gro"))
 
 
 class TestPlumedAndXtc(ScriptCase):

@@ -3,6 +3,7 @@
 from .base import Calculation, default_file_content
 from .file_ops import AddFiles, FileControl, RawShellStep, RemoveResidue, ResizeBox
 from .md import AWH, EM, MD, BarMethod, MartiniEM, MartiniMD, MDType
+from .nested import Nested
 from .solvation import RuntimeSolvation, Solvation, SolvationMCH, SolvationSCP216, molecules_to_fill
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "AddFiles",
     "RawShellStep",
     "FileControl",
+    "Nested",
 ]

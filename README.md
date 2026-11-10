@@ -59,6 +59,20 @@ work/
   2_npt/  ...
 ```
 
+### Workflow diagram (draw.io)
+
+```python
+from gmx_harness import save_drawio, to_drawio
+
+save_drawio(steps, "workflow.drawio",
+            define_labels={"POSRES": "Position Restraint"}, none_label="none")
+xml = to_drawio(steps, per_column=3, show_names=True)   # text only, nothing written
+```
+
+One card per step (EM blue, MD yellow, AWH/BAR purple, solvation green, file steps gray) with nsteps,
+emtol or simulated time (ns), temperature and defines, read from the `setting.mdp` each step generates.
+Open the file in draw.io / diagrams.net to edit it. `save_drawio` keeps an existing file unless `overwrite=True`.
+
 Run it: `cd work && bash run.sh`. Placing a `freeze` file in a step directory stops that step.
 
 Re-running and continuing:
@@ -95,6 +109,7 @@ Load GROMACS the usual way before running (`module load gromacs`, `source .../GM
 | `Solvation`, `SolvationMCH`, `SolvationSCP216`, `RuntimeSolvation` (deprecated) | Solvation |
 | `RemoveResidue`, `ResizeBox`, `AddFiles` | Typed file operations |
 | `RawShellStep` (`allow_unsafe=True` required) | Arbitrary bash |
+| `Nested` | Child steps in sub-folders (chained, or independent and optionally run in parallel) |
 
 Other: `MDParameters` (mdp editing and validation), `GroFile` (.gro/.ndx/.xyz/.pdb), `load_xvg`,
 `generate_inermolecular_interactions`, `gmx_harness.relax.relax` (OpenMM), `gmx_harness.analysis` (MDAnalysis).
@@ -126,6 +141,23 @@ metad = MD(type=MDType.v_rescale_c_rescale, calculation_name="metad", gen_vel="n
 Templates are PLUMED input plus `#define` / `#for v in a..b` / `#endfor` / `#include`, `{expr}` and
 `@sel(disk=, mol=, res=, name=, heavy=)` (atom ranges of the selected fragments). Expressions run in a
 sandbox (no dunders, lambdas or imports) and `#include` cannot leave the template's directory.
+
+### Composite steps (`Nested`)
+
+```python
+from gmx_harness import Nested
+
+windows = [Nested(f"w{i:02d}", [("00_relax", relax[i]), ("01_umb", umb[i])], chain=True) for i in range(20)]
+umbrella = Nested("umbrella", [("smd", smd), ("extract", extract), *((w.name, w) for w in windows)],
+                  broadcast=True, parallel=4, sequential_first=2)
+```
+
+A `Nested` step puts each child in its own sub-folder with the usual `run.sh` (and `copy.sh` with `chain=True`),
+so `bash run.sh` in any folder of the tree finishes that folder and a re-run resumes it. `input_to` says which
+children get the folder's `input.gro` (+ topology), `broadcast` copies the topology into every child, and
+`parallel=P` runs the children P at a time with `OMP_NUM_THREADS` divided among them (failures in `failed.txt`,
+elapsed times in `timing.log`). Children may be `Nested` again. A complete example — steered MD, window
+extraction and umbrella windows under PLUMED — is in [`examples/umbrella`](examples/umbrella/README.md).
 
 ### Design checks
 

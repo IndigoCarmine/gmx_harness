@@ -85,6 +85,19 @@ def add_molecules_from_dummy(dummy: str, include_itp: str | None = None) -> str:
     )
 
 
+def restore_original(top: str = "topo.top") -> str:
+    """
+    Keep the topology as handed over in ``<top>.orig`` (first run only) and start every run from it.
+
+    A solvation step edits topo.top in place, so re-running it after a failure (or after its
+    output.gro was removed) would add the solvent line twice. ``.orig`` does not match the
+    ``*.top`` carry pattern, so it stays in this step.
+    """
+    t = shlex.quote(validate_filename(top, "top"))
+    o = shlex.quote(top + ".orig")
+    return f"if [ ! -f {o} ]; then cp {t} {o}; fi\ncp {o} {t}"
+
+
 def include_itp(itp: str) -> str:
     """Add ``#include "itp"`` before ``[ system ]`` (no-op if already included)."""
     return _edit("''", itp)

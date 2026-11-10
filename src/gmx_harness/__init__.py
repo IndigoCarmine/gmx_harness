@@ -63,6 +63,7 @@ from .pipeline import (
 )
 from .safety import UnsafeNameError, UnsafeOperationError
 from .scripts import gmx_command
+from .diagram import save_drawio, to_drawio
 from .serialization import from_json, load_json, save_json, to_json
 from .topfile import add_conditional_include, atom_types, prepare_topology, set_molecule_count
 from .transform import RigidTransform
@@ -77,6 +78,7 @@ from .steps import (
     MartiniEM,
     MartiniMD,
     MDType,
+    Nested,
     RawShellStep,
     RemoveResidue,
     ResizeBox,
@@ -108,6 +110,7 @@ __all__ = [
     "AddFiles",
     "RawShellStep",
     "FileControl",
+    "Nested",
     # pipeline
     "build_plan",
     "Plan",
@@ -126,6 +129,9 @@ __all__ = [
     "load_json",
     "to_json",
     "from_json",
+    # diagrams
+    "to_drawio",
+    "save_drawio",
     # mdp
     "MDParameters",
     "MDPValidationError",
