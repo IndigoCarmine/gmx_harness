@@ -13,7 +13,8 @@ Format::
 
 ``type`` is the step class name, ``params`` its constructor arguments
 (``Calculation.params()``) except those left at their default; enums are
-stored by member name.
+stored by member name. The children of a ``Nested`` step are stored the same
+way, as ``"children": [[sub-folder, {"type": ..., "params": ...}], ...]``.
 """
 
 import enum
@@ -24,13 +25,14 @@ import typing
 from collections.abc import Iterator
 from typing import Any
 
-from .steps import Calculation, RawShellStep
+from .steps import Calculation, Nested, RawShellStep
 
 FORMAT = "gmx_harness.pipeline"
 VERSION = 1
 
 
 def _all_subclasses(cls: type) -> Iterator[type]:
+    sub: type
     for sub in cls.__subclasses__():
         yield sub
         yield from _all_subclasses(sub)
@@ -71,13 +73,17 @@ def _non_default_params(calc: Calculation) -> dict[str, Any]:
     }
 
 
+def _entry(calc: Calculation) -> dict[str, Any]:
+    """``{"type", "params"}`` of one step (recursing into the children of a ``Nested`` step)."""
+    params = _non_default_params(calc)
+    if isinstance(calc, Nested):
+        params["children"] = [[sub, _entry(child)] for sub, child in calc.children]
+    return {"type": type(calc).__name__, "params": params}
+
+
 def to_json(calculations: list[Calculation]) -> str:
     """Serialize steps to a JSON string (parameters left at their default are omitted)."""
-    doc = {
-        "format": FORMAT,
-        "version": VERSION,
-        "steps": [{"type": type(c).__name__, "params": _non_default_params(c)} for c in calculations],
-    }
+    doc = {"format": FORMAT, "version": VERSION, "steps": [_entry(c) for c in calculations]}
     return json.dumps(doc, indent=2)
 
 
@@ -92,33 +98,40 @@ def from_json(text: str, *, allow_unsafe: bool = False) -> list[Calculation]:
     if doc.get("version") != VERSION:
         raise ValueError(f"unsupported {FORMAT} version {doc.get('version')!r} (supported: {VERSION})")
     registry = calculation_registry()
-    result: list[Calculation] = []
-    for i, entry in enumerate(doc.get("steps", [])):
-        type_name = entry.get("type")
-        cls = registry.get(str(type_name))
-        if cls is None:
-            raise ValueError(f"steps[{i}]: unknown step type {type_name!r} (known: {sorted(registry)})")
-        params: dict[str, Any] = dict(entry.get("params", {}))
-        # pydantic dataclasses silently drop unknown keyword arguments; a typo must not vanish
-        accepted = set(inspect.signature(cls).parameters)
-        unknown = sorted(set(params) - accepted)
-        if unknown:
-            raise ValueError(f"steps[{i}] ({type_name}): unknown params {unknown}; accepted: {sorted(accepted)}")
-        for key, enum_type in _enum_params(cls).items():
-            if key in params and not isinstance(params[key], enum_type):
-                try:
-                    params[key] = enum_type[params[key]]
-                except KeyError:
-                    raise ValueError(
-                        f"steps[{i}].{key}: {params[key]!r} is not one of {[m.name for m in enum_type]}"
-                    ) from None
-        if issubclass(cls, RawShellStep):
-            params["allow_unsafe"] = allow_unsafe
-        try:
-            result.append(cls(**params))
-        except TypeError as e:
-            raise ValueError(f"steps[{i}] ({type_name}): {e}") from e
-    return result
+    return [_build(entry, f"steps[{i}]", registry, allow_unsafe) for i, entry in enumerate(doc.get("steps", []))]
+
+
+def _build(entry: Any, where: str, registry: dict[str, type[Calculation]], allow_unsafe: bool) -> Calculation:
+    """Rebuild one step from its ``{"type", "params"}`` entry."""
+    type_name = entry.get("type")
+    cls = registry.get(str(type_name))
+    if cls is None:
+        raise ValueError(f"{where}: unknown step type {type_name!r} (known: {sorted(registry)})")
+    params: dict[str, Any] = dict(entry.get("params", {}))
+    # pydantic dataclasses silently drop unknown keyword arguments; a typo must not vanish
+    accepted = set(inspect.signature(cls).parameters)
+    unknown = sorted(set(params) - accepted)
+    if unknown:
+        raise ValueError(f"{where} ({type_name}): unknown params {unknown}; accepted: {sorted(accepted)}")
+    for key, enum_type in _enum_params(cls).items():
+        if key in params and not isinstance(params[key], enum_type):
+            try:
+                params[key] = enum_type[params[key]]
+            except KeyError:
+                raise ValueError(
+                    f"{where}.{key}: {params[key]!r} is not one of {[m.name for m in enum_type]}"
+                ) from None
+    if issubclass(cls, RawShellStep):
+        params["allow_unsafe"] = allow_unsafe
+    if issubclass(cls, Nested) and "children" in params:
+        params["children"] = [
+            (str(sub), _build(child, f"{where}.children[{j}]", registry, allow_unsafe))
+            for j, (sub, child) in enumerate(params["children"])
+        ]
+    try:
+        return cls(**params)
+    except TypeError as e:
+        raise ValueError(f"{where} ({type_name}): {e}") from e
 
 
 def save_json(calculations: list[Calculation], filepath: str | os.PathLike[str]) -> None:

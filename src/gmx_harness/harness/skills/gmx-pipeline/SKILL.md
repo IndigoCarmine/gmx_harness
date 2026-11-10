@@ -32,6 +32,7 @@ description: Use gmx_harness to design a GROMACS MD pipeline (EM → NVT → NPT
 | Residue removal | `RemoveResidue(name, resname)` | Removes only that residue from topo.top |
 | Box resizing | `ResizeBox(name, x, y, z, remove_resname=None)` | nm |
 | Adding files | `AddFiles(name, {"x.itp": text})` | .top/.itp files are carried to later steps |
+| Steps in sub-folders (window sets, chained sub-pipelines) | `Nested(name, [("sub", step), ...], chain=, broadcast=, input_to=, parallel=)` | `bash run.sh` in any folder finishes it; `parallel` splits `OMP_NUM_THREADS` |
 | Anything else | `RawShellStep(..., allow_unsafe=True)` | **Requires human approval** |
 
 - Time = `nsteps × dt` (atomistic dt = 0.002 ps → 1 ns = 500,000 steps; Martini uses 0.02 ps).

@@ -61,7 +61,7 @@ Attributes:
     additional_mdp_parameters: any extra/overriding mdp options.
     strict_mdp: raise on mdp validation errors (False: only warn).
 
-### class `MD(*, type: MDType, calculation_name: str, nsteps: int = 10000, nstout: int = 1000, gen_vel: str = 'yes', temperature: float = 300, defines: list[str] = [], maxwarn: int = 0, useRestraint: bool = False, useSemiisotropic: bool = False, additional_mdp_parameters: dict[str, str | int | float] = {}, mdrun_args: list[str] = [], extra_files: dict[str, str] = {}, plumed: str | None = None, continuation: bool | None = None, strict_mdp: bool = True)`  (bases: Calculation)
+### class `MD(*, type: MDType, calculation_name: str, nsteps: int = 10000, nstout: int = 1000, gen_vel: str = 'yes', temperature: float = 300, defines: list[str] = [], maxwarn: int = 0, useRestraint: bool = False, useSemiisotropic: bool = False, additional_mdp_parameters: dict[str, str | int | float] = {}, mdrun_args: list[str] = [], extra_files: dict[str, str] = {}, plumed: str | None = None, continuation: bool | None = None, index_file: str | None = None, strict_mdp: bool = True)`  (bases: Calculation)
 Atomistic MD run from one of the ``MDType`` templates (dt = 0.002 ps).
 
 Attributes:
@@ -78,6 +78,7 @@ Attributes:
     additional_mdp_parameters: any extra/overriding mdp options (applied last-but-one; flexible escape hatch).
     continuation: mdp ``continuation`` (True/False -> yes/no). None keeps the template value.
     plumed: PLUMED input text; written as plumed.dat and run with ``-plumed`` (restarts add RESTART).
+    index_file: index file passed to grompp with ``-n`` (e.g. for ``freezegrps`` / ``tc_grps`` groups).
     mdrun_args: extra mdrun arguments placed right after ``mdrun``.
     extra_files: additional files for this step, {file name: content} (e.g. {"plumed.dat": text}).
     strict_mdp: raise on mdp validation errors (False: only warn).
@@ -158,6 +159,33 @@ Deprecated name of ``RawShellStep`` (mylibs). Its helpers return the typed steps
 Methods:
 - classmethod `remove_MCH(name: str) -> RemoveResidue`
 - classmethod `cell_resizing(name: str, x: float, y: float, z: float) -> ResizeBox`
+
+### class `Nested(calculation_name: str, children: Sequence[Calculation | tuple[str, Calculation]], *, chain: bool = False, carry: Sequence[str] = ('*.top', '*.itp'), broadcast: bool = False, input_to: str = 'first', parallel: int = 1, sequential_first: int = 0)`  (bases: Calculation)
+A step made of child steps, each in its own sub-folder (see the module docstring).
+
+Attributes:
+    children: the child steps, as ``(sub-folder, step)`` pairs or bare steps (sub-folder = step name).
+    chain: run the children in order and hand ``output.gro`` (plus ``carry`` files) of each to the next,
+        like the top-level pipeline does.
+    carry: file patterns handed over between chained children and copied from this folder into
+        the children (default ``*.top`` and ``*.itp``).
+    broadcast: copy the ``carry`` files of this folder into every child before it runs
+        (not with ``chain``: it would overwrite the topology a previous child handed over).
+    input_to: which children get this folder's ``input.gro`` and ``carry`` files before they run:
+        "first" (default), "all" or "none" (children whose input is placed by other means).
+    parallel: run the children from index ``sequential_first`` on up to ``parallel`` at a time
+        (background jobs). Each gets ``OMP_NUM_THREADS`` = (``$OMP_NUM_THREADS`` or ``nproc``) /
+        ``parallel``, so the runs share the cores of the node; do not also put ``-ntomp`` in
+        ``MDRUN_ARGS``. Failed children are listed in ``failed.txt`` and the step fails.
+    sequential_first: with ``parallel`` > 1, the number of leading children run one after the other
+        before the parallel block (e.g. a steered MD and the frame extraction before the windows).
+
+Elapsed seconds per child go to ``timing.log``. Children that already have ``output.gro`` are
+skipped, so re-running the step resumes it. When all children are done, ``output.gro`` is the last
+child's ``output.gro`` with ``chain``, otherwise a copy of ``input.gro``.
+
+Methods:
+- `generate(*, preflight_root: str | None = None) -> dict[str, str]` - The step's files. ``preflight_root`` (the working directory relative to this step, e.g. ``..``;
 
 ### `build_plan(calculations: list[Calculation], input_gro: str | PathLike[str], working_dir: str | PathLike[str], *, extra_inputs: Sequence[str | PathLike[str]] | Mapping[str, str | PathLike[str]] | None = None, step_inputs: Mapping[str, Sequence[str | PathLike[str]] | Mapping[str, str | PathLike[str]]] | None = None, carry: Sequence[str] = ('*.top', '*.itp'), checks: bool = True, waive: Mapping[str, str] | None = None, require_preflight: bool = False) -> Plan`
 Plan a pipeline: ``working_dir/0_<name>/``, ``1_<name>/``, ... plus a top-level ``run.sh``.

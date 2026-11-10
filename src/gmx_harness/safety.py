@@ -52,6 +52,15 @@ def validate_filename(name: str, what: str = "file name") -> str:
     return name
 
 
+def validate_script_relpath(rel: str, what: str = "file path") -> str:
+    """A relative path ``a/b/c`` whose every part is a bare file name (used by ``Nested`` sub-folders)."""
+    if not isinstance(rel, str):
+        raise UnsafeNameError(f"{what}={rel!r} is not a string")
+    for part in rel.split("/"):
+        validate_filename(part, what)
+    return rel
+
+
 _DRIVE = re.compile(r"^[A-Za-z]:")
 
 
