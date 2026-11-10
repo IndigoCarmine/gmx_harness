@@ -51,14 +51,21 @@ def moleculetype_atoms(text: str) -> dict[str, int]:
 
 
 def _with_includes(text: str, base: Path | None, files: Mapping[str, str] | None, depth: int = 0) -> tuple[str, list[str]]:
-    """Text with local ``#include`` files appended (from ``files`` or next to ``base``); unresolved names."""
-    parts: list[str] = [text]
+    """
+    Text with every local ``#include`` (from ``files`` or next to ``base``) expanded in place, as
+    the preprocessor does; unresolved names. In place matters: an ``[ atoms ]`` block that is
+    included under ``[ moleculetype ]`` belongs to that molecule type, so a shared itp included by
+    two molecule types counts once for each. Unresolved includes (force-field files) stay as
+    ``#include`` lines, which ``_sections`` skips.
+    """
     missing: list[str] = []
     if depth > 5:
         return text, missing
+    out: list[str] = []
     for raw in text.splitlines():
         m = _INCLUDE.match(raw)
         if not m:
+            out.append(raw)
             continue
         name = m.group(1)
         sub: str | None = None
@@ -68,11 +75,12 @@ def _with_includes(text: str, base: Path | None, files: Mapping[str, str] | None
             sub = (base / name).read_text(encoding="utf-8", errors="replace")
         if sub is None:
             missing.append(name)
+            out.append(raw)
             continue
         t, miss = _with_includes(sub, (base / name).parent if base is not None else None, files, depth + 1)
-        parts.append(t)
+        out.append(t)
         missing += miss
-    return "\n".join(parts), missing
+    return "\n".join(out), missing
 
 
 def topology_atom_count(top_text: str, *, base: str | os.PathLike[str] | None = None,

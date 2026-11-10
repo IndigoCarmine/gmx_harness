@@ -215,6 +215,20 @@ class TestStructure(unittest.TestCase):
         self.assertEqual([(i.code, i.level) for i in rep.issues], [("S011", "error")])
         rep.enforce({"S011": "XYZ comes from the force field directory"}, quiet=True)   # waivable
 
+    def test_topology_shared_include(self) -> None:
+        # two molecule types whose [ atoms ] come from the same itp, included under each [ moleculetype ]:
+        # the atoms belong to the molecule type the #include sits in, not to the last one of the file
+        top = ("[ moleculetype ]\nA 3\n#include \"mol.itp\"\n#ifdef POSRES\n#include \"posre.itp\"\n#endif\n\n"
+               "[ moleculetype ]\nB 3\n#include \"mol.itp\"\n\n[ system ]\nt\n\n[ molecules ]\nA 1\nB 2\n")
+        itp = TOP.split("[ system ]")[0].split("[ atoms ]", 1)[1]
+        files = {"mol.itp": "[ atoms ]" + itp, "posre.itp": "[ position_restraints ]\n1 1 1000 1000 1000\n"}
+        self.assertTrue(check_topology(gro(3), top, files=files).ok())     # 3 x 4 atoms
+        self.assertEqual(codes(check_topology(gro(4), top, files=files)), {"S001"})
+        with tempfile.TemporaryDirectory() as d:                        # the same from files next to `base`
+            for name, text in files.items():
+                (Path(d) / name).write_text(text)
+            self.assertTrue(check_topology(gro(3), top, base=d).ok())
+
     def test_set_molecule_count_needs_names_for_several_types(self) -> None:
         with self.assertRaises(ValueError):
             set_molecule_count(TOP.format(n=3) + "SOL 5\n", 10)
