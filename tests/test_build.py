@@ -13,7 +13,7 @@ from gmx_harness import (
     pre_coordinate,
     precoordinate2,
 )
-from gmx_harness.build import align, rotation
+from gmx_harness.transform import align_matrix, rotation_matrix
 
 
 def monomer() -> GroFile:
@@ -33,19 +33,19 @@ def distances(x: np.ndarray) -> np.ndarray:
 
 class TestRotations(unittest.TestCase):
     def test_rotation_is_right_handed(self) -> None:
-        np.testing.assert_allclose(rotation("z", 90, degrees=True) @ [1, 0, 0], [0, 1, 0], atol=1e-12)
-        np.testing.assert_allclose(rotation("x", 90, degrees=True) @ [0, 1, 0], [0, 0, 1], atol=1e-12)
-        np.testing.assert_allclose(rotation("y", 90, degrees=True) @ [0, 0, 1], [1, 0, 0], atol=1e-12)
+        np.testing.assert_allclose(rotation_matrix("z", 90, degrees=True) @ [1, 0, 0], [0, 1, 0], atol=1e-12)
+        np.testing.assert_allclose(rotation_matrix("x", 90, degrees=True) @ [0, 1, 0], [0, 0, 1], atol=1e-12)
+        np.testing.assert_allclose(rotation_matrix("y", 90, degrees=True) @ [0, 0, 1], [1, 0, 0], atol=1e-12)
 
     def test_align(self) -> None:
         rng = np.random.default_rng(1)
         for _ in range(20):
             v, t = rng.normal(size=3), rng.normal(size=3)
-            r = align(v, t)
+            r = align_matrix(v, t)
             np.testing.assert_allclose(r @ r.T, np.eye(3), atol=1e-12)
             self.assertAlmostEqual(np.linalg.det(r), 1.0)
             np.testing.assert_allclose(r @ (v / np.linalg.norm(v)), t / np.linalg.norm(t), atol=1e-12)
-        np.testing.assert_allclose(align([1, 0, 0], [-1, 0, 0]) @ [1, 0, 0], [-1, 0, 0], atol=1e-12)
+        np.testing.assert_allclose(align_matrix([1, 0, 0], [-1, 0, 0]) @ [1, 0, 0], [-1, 0, 0], atol=1e-12)
 
 
 class TestPreCoordinate(unittest.TestCase):

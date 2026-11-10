@@ -218,7 +218,7 @@ fiber.to_gro(box=(10, 10, 3.5), renumber=True).save_gro("fiber.gro")
 ```
 
 ほかに `pre_coordinate`、`make_rosette`、`make_half_rosette2`、`Assembly.translate/rotate`、
-`gmx_harness.build.rotation` / `align`（3x3 行列。`GroFile.rotate` は scipy の `Rotation` も受け付けます）があります。
+`gmx_harness.transform.rotation_matrix` / `align_matrix`（3x3 行列。`GroFile.rotate` は scipy の `Rotation` も受け付けます）があります。
 mylibs の `pre_coordinator` / `rosette_maker` からの移植で、座標は 1e-16 nm 程度で一致します。
 
 新しいスクリプトでは、座標に直接触らずに組み立てる。分子は剛体としてだけ動かし（`RigidTransform`。鏡像は作れない）、

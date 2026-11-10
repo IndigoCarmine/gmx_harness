@@ -39,11 +39,6 @@ Matrix = npt.NDArray[np.float64]
 Axis = Literal["x", "y", "z"]
 
 
-# 3x3 matrices, kept here for existing callers; ``RigidTransform`` (transform.py) is the newer API.
-rotation = rotation_matrix
-align = align_matrix
-
-
 class Assembly:
     """An ordered group of molecules (``GroFile``) moved together (mylibs' ``Substructure``)."""
 
@@ -204,9 +199,9 @@ def pre_coordinate(molecule: GroFile, top: int, side_a: int, side_b: int) -> Gro
     """
     molecule.translate(-molecule.get_child(top).coordinate)
     vector = molecule.get_child(side_a).coordinate + molecule.get_child(side_b).coordinate
-    molecule.rotate(align(vector, [1.0, 0.0, 0.0]))
+    molecule.rotate(align_matrix(vector, [1.0, 0.0, 0.0]))
     v = molecule.get_child(side_a).coordinate
-    molecule.rotate(rotation("x", np.arctan2(v[1], v[2])))
+    molecule.rotate(rotation_matrix("x", np.arctan2(v[1], v[2])))
     return molecule
 
 
@@ -219,11 +214,11 @@ def precoordinate2(molecule: GroFile, top: int, aromatic_nh: int, aromatic_o: in
     """
     molecule.translate(-molecule.get_child(top).coordinate)
     v = molecule.get_child(aromatic_nh).coordinate
-    molecule.rotate(rotation("z", -np.arctan2(v[1], v[0])))
+    molecule.rotate(rotation_matrix("z", -np.arctan2(v[1], v[0])))
     v = molecule.get_child(aromatic_nh).coordinate
-    molecule.rotate(rotation("y", np.arctan2(v[2], v[0])))
+    molecule.rotate(rotation_matrix("y", np.arctan2(v[2], v[0])))
     v = molecule.get_child(aromatic_o).coordinate
-    molecule.rotate(rotation("x", np.arctan2(v[2], -v[1])))
+    molecule.rotate(rotation_matrix("x", np.arctan2(v[2], -v[1])))
     return molecule
 
 
@@ -234,9 +229,9 @@ def make_rosette(monomer: GroFile, n: int, size: float, angle: float, degree: bo
     """
     rosette = Assembly([copy.deepcopy(monomer) for _ in range(n)])
     for i, m in enumerate(rosette):
-        m.rotate(rotation("y", -angle, degrees=degree))
+        m.rotate(rotation_matrix("y", -angle, degrees=degree))
         m.translate([size / 2, 0.0, 0.0])
-        m.rotate(rotation("y", 360 / n * i, degrees=True))
+        m.rotate(rotation_matrix("y", 360 / n * i, degrees=True))
     return rosette
 
 
@@ -245,7 +240,7 @@ def make_rosette2(monomer: GroFile, n: int, size: float) -> Assembly:
     rosette = Assembly([copy.deepcopy(monomer) for _ in range(n)])
     for i, m in enumerate(rosette):
         m.translate([size, 0.0, 0.0])
-        m.rotate(rotation("z", 360 / n * i, degrees=True))
+        m.rotate(rotation_matrix("z", 360 / n * i, degrees=True))
     return rosette
 
 
@@ -254,7 +249,7 @@ def make_half_rosette2(monomer: GroFile, n: int, size: float) -> Assembly:
     rosette = Assembly([copy.deepcopy(monomer) for _ in range(n)])
     for i, m in enumerate(rosette):
         m.translate([size, 0.0, 0.0])
-        m.rotate(rotation("z", 180 / n * i, degrees=True))
+        m.rotate(rotation_matrix("z", 180 / n * i, degrees=True))
     return rosette
 
 
@@ -270,6 +265,6 @@ def make_oligorosette(
     radius = (slip / 2) / np.sin((angle / 2) * np.pi / 180) if slip != 0 else 0.0
     for i, r in enumerate(stack):
         r.translate([0.0, 0.0, length * i])
-        r.rotate(rotation("z", angle * i, degrees=degree))
+        r.rotate(rotation_matrix("z", angle * i, degrees=degree))
         r.translate([radius * np.sin(i * angle * np.pi / 180), radius * np.cos(i * angle * np.pi / 180), 0.0])
     return stack

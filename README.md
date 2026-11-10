@@ -224,7 +224,7 @@ fiber.to_gro(box=(10, 10, 3.5), renumber=True).save_gro("fiber.gro")
 ```
 
 Also `pre_coordinate`, `make_rosette`, `make_half_rosette2`, `Assembly.translate/rotate`, and
-`gmx_harness.build.rotation` / `align` (3x3 matrices; `GroFile.rotate` also accepts scipy `Rotation`).
+`gmx_harness.transform.rotation_matrix` / `align_matrix` (3x3 matrices; `GroFile.rotate` also accepts scipy `Rotation`).
 Ported from mylibs' `pre_coordinator` / `rosette_maker`; coordinates agree with them to ~1e-16 nm.
 
 For new scripts, build without touching coordinates: molecules move only as rigid bodies
