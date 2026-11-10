@@ -59,6 +59,20 @@ work/
   2_npt/  ...
 ```
 
+### Workflow diagram (draw.io)
+
+```python
+from gmx_harness import save_drawio, to_drawio
+
+save_drawio(steps, "workflow.drawio",
+            define_labels={"POSRES": "Position Restraint"}, none_label="none")
+xml = to_drawio(steps, per_column=3, show_names=True)   # text only, nothing written
+```
+
+One card per step (EM blue, MD yellow, AWH/BAR purple, solvation green, file steps gray) with nsteps,
+emtol or simulated time (ns), temperature and defines, read from the `setting.mdp` each step generates.
+Open the file in draw.io / diagrams.net to edit it. `save_drawio` keeps an existing file unless `overwrite=True`.
+
 Run it: `cd work && bash run.sh`. Placing a `freeze` file in a step directory stops that step.
 
 Re-running and continuing:

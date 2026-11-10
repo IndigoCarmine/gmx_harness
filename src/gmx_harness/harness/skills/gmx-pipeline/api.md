@@ -243,6 +243,25 @@ Serialize steps to a JSON string (parameters left at their default are omitted).
 Rebuild steps from ``to_json`` output. ``RawShellStep`` entries contain
 unchecked shell code and need ``allow_unsafe=True``; that flag is never stored.
 
+### `to_drawio(calculations: Sequence[Calculation], *, title: str | None = 'MD Calculation Workflow', per_column: int = 3, define_labels: Mapping[str, str] | None = None, none_label: str = 'none', show_names: bool = False) -> str`
+A draw.io file (uncompressed ``<mxfile>`` XML) drawing the pipeline as a flowchart.
+
+Cards: energy minimization blue, MD yellow, AWH/BAR purple, solvation green,
+file steps gray. They run top to bottom in columns of ``per_column`` and are
+joined by arrows. Open the result in draw.io / diagrams.net to edit it.
+
+Args:
+    calculations: the pipeline steps, as given to ``build_plan``.
+    title: text above the chart (None: no title).
+    per_column: cards per column before wrapping to the next column.
+    define_labels: readable names for ``define`` flags,
+        e.g. ``{"INTERMOLECULAR": "Intermolecular Interaction"}``.
+    none_label: shown when a step has no defines (e.g. ``"なし"``).
+    show_names: append each step's ``calculation_name`` to its heading.
+
+### `save_drawio(calculations: Sequence[Calculation], filepath: str | PathLike[str], *, overwrite: bool = False, title: str | None = 'MD Calculation Workflow', per_column: int = 3, define_labels: Mapping[str, str] | None = None, none_label: str = 'none', show_names: bool = False) -> None`
+Write ``to_drawio(...)`` to ``filepath`` (``.drawio``). An existing file is kept unless ``overwrite=True``.
+
 ### class `MDParameters(data: dict[str, str | int | float] | None = None, ignore_deepcopy: bool = False)`
 Ordered set of GROMACS .mdp parameters.
 

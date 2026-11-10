@@ -59,6 +59,20 @@ work/
   2_npt/  ...
 ```
 
+### ワークフロー図（draw.io）
+
+```python
+from gmx_harness import save_drawio, to_drawio
+
+save_drawio(steps, "workflow.drawio",
+            define_labels={"POSRES": "Position Restraint"}, none_label="なし")
+xml = to_drawio(steps, per_column=3, show_names=True)   # 文字列を返すだけで書き込まない
+```
+
+ステップごとに 1 枚のカード（EM 青、MD 黄、AWH/BAR 紫、溶媒和 緑、ファイル操作 灰）を描き、各ステップが生成する
+`setting.mdp` から nsteps、emtol またはシミュレーション時間（ns）、温度、defines を読んで表示する。
+draw.io / diagrams.net で開いて編集できる。`save_drawio` は既存ファイルを上書きしない（`overwrite=True` で上書き）。
+
 実行: `cd work && bash run.sh`。ステップのディレクトリに `freeze` ファイルを置くと、そのステップは止まります。
 
 再実行・続きからの実行:
