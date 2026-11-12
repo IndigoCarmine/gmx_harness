@@ -32,6 +32,9 @@ it is a good starting point for a subsequent GROMACS minimization.
 
 import os
 import re
+import shutil
+from collections.abc import Sequence
+from pathlib import Path
 
 from openmm import (
     CustomNonbondedForce,
@@ -44,6 +47,8 @@ from openmm import (
 )
 from openmm.app import GromacsGroFile, GromacsTopFile, Simulation, CutoffPeriodic, Topology
 from openmm.unit import Quantity
+
+from .safety import validate_filename, validate_name
 
 nanometer = unit.nanometer
 
@@ -459,8 +464,11 @@ def relax(
     out_dir: str,
     include_dir: str | None = None,
     fixed_atom_k: Quantity = FIXED_ATOM_K,
+    out_name: str | None = None,
 ) -> str:
     """Relax ``gro_path``/``top_path`` and write ``<stem>_relaxed.gro`` into ``out_dir``.
+
+    ``out_name`` gives the output file name instead (a plain file name, e.g. ``"<stem>.gro"``).
 
     ``include_dir`` is forwarded to GromacsTopFile for resolving ``#include``s
     that live outside the .top file's own directory (e.g. a shared
@@ -481,6 +489,8 @@ def relax(
     """
     if not os.path.isdir(out_dir):
         raise NotADirectoryError(f"out_dir does not exist: {out_dir}")
+    if out_name is not None:
+        validate_filename(out_name, "out_name")
 
     gro = GromacsGroFile(gro_path)
     box = gro.getPeriodicBoxVectors()
@@ -530,7 +540,7 @@ def relax(
 
     state = simulation.context.getState(getPositions=True)
     stem = os.path.splitext(os.path.basename(gro_path))[0]
-    out_path = os.path.join(out_dir, f"{stem}_relaxed.gro")
+    out_path = os.path.join(out_dir, out_name or f"{stem}_relaxed.gro")
     write_gro(
         top.topology,
         state.getPositions(),
@@ -539,3 +549,59 @@ def relax(
         f"{stem} relaxed with soft-core LJ",
     )
     return out_path
+
+
+def relax_systems(
+    systems: Sequence[str],
+    src_dir: str | os.PathLike[str],
+    top_dir: str | os.PathLike[str],
+    out_dir: str | os.PathLike[str],
+    *,
+    top_suffix: str = "_fixed.top",
+    keep_existing: bool = True,
+    copy_ndx: bool = True,
+    include_dir: str | None = None,
+    fixed_atom_k: Quantity = FIXED_ATOM_K,
+) -> dict[str, str]:
+    """Relax every ``<src_dir>/<system>.gro`` with ``<top_dir>/<system><top_suffix>`` into ``<out_dir>/<system>.gro``.
+
+    With ``copy_ndx`` the matching ``<src_dir>/<system>.ndx`` is copied next to it, so the
+    relaxed structure keeps its index groups. With ``keep_existing`` (the default) a system
+    whose ``<out_dir>/<system>.gro`` already exists is left alone: a relaxed structure may
+    already feed submitted jobs, so redo one by deleting it by hand. Every input is checked
+    before the first (slow) minimization starts.
+
+    Returns:
+        ``{system: "relaxed" | "kept"}`` in the order of ``systems``.
+
+    Raises:
+        NotADirectoryError: if ``out_dir`` does not exist.
+        FileNotFoundError: if an input of a system to relax is missing.
+    """
+    out = Path(out_dir)
+    if not out.is_dir():
+        raise NotADirectoryError(f"out_dir does not exist: {out}")
+    validate_filename(f"x{top_suffix}", "top_suffix")
+    status: dict[str, str] = {}
+    for system in systems:
+        validate_name(system, "system")
+        if keep_existing and (out / f"{system}.gro").exists():
+            status[system] = "kept"
+            continue
+        needed = [Path(src_dir, f"{system}.gro"), Path(top_dir, f"{system}{top_suffix}")]
+        if copy_ndx:
+            needed.append(Path(src_dir, f"{system}.ndx"))
+        missing = [str(p) for p in needed if not p.is_file()]
+        if missing:
+            raise FileNotFoundError(f"{system}: missing {', '.join(missing)}")
+        status[system] = "relaxed"
+    for system in systems:
+        if status[system] == "kept":
+            print(f"{system}: already relaxed, kept", flush=True)
+            continue
+        relax(str(Path(src_dir, f"{system}.gro")), str(Path(top_dir, f"{system}{top_suffix}")), str(out),
+              include_dir=include_dir, fixed_atom_k=fixed_atom_k, out_name=f"{system}.gro")
+        if copy_ndx:
+            shutil.copyfile(Path(src_dir, f"{system}.ndx"), out / f"{system}.ndx")
+        print(f"{system}: -> {out}", flush=True)
+    return status

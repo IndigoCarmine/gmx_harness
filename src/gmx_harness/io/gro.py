@@ -3,12 +3,16 @@
 Ported from mylibs' ``mole.gro`` without the dependency on ``mole.molecules``.
 """
 
+from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from ..transform import RigidTransform
 
 
 class _Rotation(Protocol):
@@ -160,6 +164,31 @@ class GroFile:
     def save_pdb(self, file_path: str) -> None:
         with open(file_path, "w", newline="\n") as f:
             f.write(self.generate_pdb_text())
+
+    def positions(self, atoms: Iterable[int] | None = None) -> npt.NDArray[np.float64]:
+        """
+        Read-only (N, 3) copy of the coordinates (nm), for measuring or fitting.
+
+        ``atoms`` are 1-based positions in the atom list (the atom numbers of a renumbered
+        file, e.g. of a monomer); None = all atoms. Writing to the result raises; to move
+        atoms use ``transformed`` with a ``RigidTransform``.
+        """
+        if atoms is None:
+            out = np.array([a.coordinate for a in self.atoms], dtype=float).reshape(-1, 3)
+        else:
+            idx = list(atoms)
+            if any(i < 1 or i > len(self.atoms) for i in idx):
+                raise IndexError(f"atom numbers must be within 1..{len(self.atoms)}")
+            out = np.array([self.atoms[i - 1].coordinate for i in idx], dtype=float).reshape(-1, 3)
+        out.flags.writeable = False
+        return out
+
+    def transformed(self, transform: "RigidTransform") -> "GroFile":
+        """A copy with every atom moved by ``transform``; this structure is not changed."""
+        new = deepcopy(self)
+        for atom, p in zip(new.atoms, transform.apply(self.positions())):
+            atom.coordinate = p
+        return new
 
     def renumber(self, start: int = 1) -> None:
         for i, atom in enumerate(self.atoms):

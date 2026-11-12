@@ -85,3 +85,36 @@ def prepare_topology(
     text = add_conditional_include(set_molecule_count(text, nmols), itp_name, define)
     with open(out_path, "w", encoding="utf8", newline="\n") as f:
         f.write(text)
+
+
+def atom_types(top_path: str | os.PathLike[str], molecule: str | None = None) -> list[str]:
+    """
+    Atom types (2nd column of ``[ atoms ]``) of one ``[ moleculetype ]`` of a .top/.itp file, in atom
+    order (entry k is atom k + 1). ``molecule`` names the moleculetype; it may be left out when the
+    file defines only one. ``#include`` files are not followed.
+    """
+    from .checks.structure import _sections
+
+    with open(top_path, "r", encoding="utf8") as f:
+        text = f.read()
+    found: dict[str, list[tuple[int, str]]] = {}
+    current: str | None = None
+    for section, line in _sections(text):
+        parts = line.split()
+        if section == "moleculetype":
+            current = parts[0]
+            found[current] = []
+        elif section == "atoms" and current is not None and len(parts) >= 2 and parts[0].isdigit():
+            found[current].append((int(parts[0]), parts[1]))
+    if not found:
+        raise ValueError(f"{top_path}: no [ moleculetype ] found")
+    if molecule is None:
+        if len(found) > 1:
+            raise ValueError(f"{top_path}: several moleculetypes {sorted(found)}: pass molecule=...")
+        molecule = next(iter(found))
+    if molecule not in found:
+        raise ValueError(f"{top_path}: no moleculetype {molecule!r} (found {sorted(found)})")
+    rows = found[molecule]
+    if [n for n, _ in rows] != list(range(1, len(rows) + 1)):
+        raise ValueError(f"{top_path}: [ atoms ] of {molecule} is not numbered 1..{len(rows)} in order")
+    return [t for _, t in rows]

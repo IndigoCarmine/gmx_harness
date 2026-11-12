@@ -12,8 +12,11 @@ from gmx_harness.relax import (
     find_inter_itp,
     parse_inter_bonds,
     relax,
+    relax_systems,
     write_gro,
 )
+
+from gmx_harness.safety import UnsafeNameError
 
 nanometer = unit.nanometer
 
@@ -665,6 +668,49 @@ class TestRelax(unittest.TestCase):
             out_path = relax(short_path, top_path, tmpdir)
 
             self.assertEqual(os.path.basename(out_path), "ab_relaxed.gro")
+
+
+class TestRelaxSystems(unittest.TestCase):
+    """relax_systems = the loop of the workspace's 3md_planning/relax.py."""
+
+    def _inputs(self, d, stem="S_sheet_AA-CC"):
+        src, top, out = (os.path.join(d, n) for n in ("sp", "top_fixed", "sp_relaxed"))
+        for x in (src, top, out):
+            os.mkdir(x)
+        with open(os.path.join(src, f"{stem}.gro"), "w", newline="\n") as f:
+            f.write(_GRO_BODY)
+        with open(os.path.join(src, f"{stem}.ndx"), "w", newline="\n") as f:
+            f.write("[ All ]\n1 2 3 4\n")
+        with open(os.path.join(top, f"{stem}_fixed.top"), "w", newline="\n") as f:
+            f.write(_TOP_BODY)
+        return src, top, out
+
+    def test_out_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            gro, top = TestRelax()._write_inputs(d)
+            out = relax(gro, top, d, out_name="final.gro")
+            self.assertEqual(out, os.path.join(d, "final.gro"))
+            with self.assertRaises(UnsafeNameError):
+                relax(gro, top, d, out_name="../escape.gro")
+
+    def test_relaxes_copies_ndx_then_keeps(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, top, out = self._inputs(d)
+            self.assertEqual(relax_systems(["S_sheet_AA-CC"], src, top, out), {"S_sheet_AA-CC": "relaxed"})
+            self.assertTrue(os.path.exists(os.path.join(out, "S_sheet_AA-CC.gro")))
+            self.assertFalse(os.path.exists(os.path.join(out, "S_sheet_AA-CC_relaxed.gro")))
+            with open(os.path.join(out, "S_sheet_AA-CC.ndx")) as f:
+                self.assertEqual(f.read(), "[ All ]\n1 2 3 4\n")
+            before = os.path.getmtime(os.path.join(out, "S_sheet_AA-CC.gro"))
+            self.assertEqual(relax_systems(["S_sheet_AA-CC"], src, top, out), {"S_sheet_AA-CC": "kept"})
+            self.assertEqual(os.path.getmtime(os.path.join(out, "S_sheet_AA-CC.gro")), before)
+
+    def test_missing_input_fails_before_any_minimization(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, top, out = self._inputs(d)
+            with self.assertRaises(FileNotFoundError):
+                relax_systems(["S_sheet_AA-CC", "missing"], src, top, out)
+            self.assertEqual(os.listdir(out), [])
 
 
 if __name__ == "__main__":
