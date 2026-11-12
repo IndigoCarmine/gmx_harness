@@ -71,6 +71,9 @@ xml = to_drawio(steps, per_column=3, show_names=True)   # text only, nothing wri
 
 One card per step (EM blue, MD yellow, AWH/BAR purple, solvation green, file steps gray) with nsteps,
 emtol or simulated time (ns), temperature and defines, read from the `setting.mdp` each step generates.
+A `Nested` step is a gray frame around the cards of its children (stacked; with `parallel` the children after
+`sequential_first` side by side). Consecutive children that would look the same, such as umbrella windows that differ
+only in their PLUMED input, are drawn once as `[w00 … w19] ×20` (`collapse_repeats=False` draws every one).
 Open the file in draw.io / diagrams.net to edit it. `save_drawio` keeps an existing file unless `overwrite=True`.
 
 Run it: `cd work && bash run.sh`. Placing a `freeze` file in a step directory stops that step.
